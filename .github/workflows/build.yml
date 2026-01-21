@@ -16,7 +16,7 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             name: macOS-ARM
-          - platform: macos-13
+          - platform: macos-latest
             target: x86_64-apple-darwin
             name: macOS-Intel
           - platform: windows-latest
@@ -76,7 +76,7 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             name: macOS-ARM
-          - platform: macos-13
+          - platform: macos-latest
             target: x86_64-apple-darwin
             name: macOS-Intel
           - platform: windows-latest
