@@ -1,0 +1,107 @@
+name: Build Tauri Apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-sender:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          cd photo-transfer
+          npm install
+
+      - name: Install dependencies (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cd photo-transfer
+          npm install
+
+      - name: Build Sender App
+        run: |
+          cd photo-transfer
+          npm run tauri build
+
+      - name: Upload macOS Sender
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Sender-macOS
+          path: photo-transfer/src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Upload Windows Sender
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Sender-Windows
+          path: photo-transfer/src-tauri/target/release/bundle/msi/*.msi
+
+  build-receiver:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          cd porn-receiver
+          npm install
+
+      - name: Install dependencies (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cd porn-receiver
+          npm install
+
+      - name: Build Receiver App
+        run: |
+          cd porn-receiver
+          npm run tauri build
+
+      - name: Upload macOS Receiver
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Receiver-macOS
+          path: porn-receiver/src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Upload Windows Receiver
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Receiver-Windows
+          path: porn-receiver/src-tauri/target/release/bundle/msi/*.msi

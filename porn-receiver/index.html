@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Porn Receiver</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <header class="header">
+        <div class="header-left">
+          <img src="/src/assets/logo.svg" alt="Porn Transfer" class="logo" />
+          <div class="server-status" id="server-status" title="Click pentru a porni/opri serverul">
+            <span class="status-indicator" id="status-indicator"></span>
+            <span id="status-text">Oprit</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <span id="ip-address"></span>
+        </div>
+      </header>
+
+      <!-- Setup Screen (shown first time) -->
+      <div class="setup-screen" id="setup-screen">
+        <h2>Configurare initiala</h2>
+        <form class="setup-form" id="setup-form">
+          <div class="form-group">
+            <label>Rol</label>
+            <div class="role-selector">
+              <label class="role-option">
+                <input type="radio" name="setup-role" value="tagger" checked />
+                <span>Tagger</span>
+              </label>
+              <label class="role-option">
+                <input type="radio" name="setup-role" value="editor" />
+                <span>Editor</span>
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Numele tau</label>
+            <input type="text" id="setup-name" placeholder="Ex: Paul taggeru" required />
+          </div>
+          <div class="form-group">
+            <label>Folder salvare</label>
+            <div class="folder-select">
+              <input type="text" id="setup-folder" placeholder="Selecteaza folder..." readonly />
+              <button type="button" class="btn btn-secondary" id="setup-browse">...</button>
+            </div>
+          </div>
+          <button type="submit" class="btn">Porneste Server</button>
+        </form>
+      </div>
+
+      <!-- Main Content (after setup) -->
+      <div class="main-content" id="main-content" style="display: none;">
+        <!-- Day Selector (Tagger only) -->
+        <div class="day-selector" id="day-selector" style="display: none;">
+          <label>Ziua curenta:</label>
+          <div class="day-controls">
+            <button type="button" class="day-btn" id="day-prev">-</button>
+            <input type="text" id="current-day" value="DAY 1" />
+            <button type="button" class="day-btn" id="day-next">+</button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab active" data-tab="transfers">Transferuri</button>
+          <button class="tab" data-tab="send" id="tab-send-btn" style="display: none;">Trimite</button>
+          <button class="tab" data-tab="history">Istoric</button>
+          <button class="tab" data-tab="settings">Setari</button>
+        </div>
+
+        <!-- Transfers Tab -->
+        <div class="tab-content active" id="tab-transfers">
+          <div class="transfers-panel" id="transfers-panel">
+            <div class="transfers-empty" id="transfers-empty">
+              <p>Astept transferuri...</p>
+              <p>Fotografii pot trimite fisiere catre acest computer</p>
+            </div>
+            <div id="transfers-list"></div>
+          </div>
+        </div>
+
+        <!-- Send Tab (visible only for editors and taggers) -->
+        <div class="tab-content" id="tab-send">
+          <div class="send-panel">
+            <div class="editors-section">
+              <h3>Editori online</h3>
+              <div class="editors-list" id="editors-list">
+                <p class="no-editors" id="no-editors">Caut editori...</p>
+              </div>
+            </div>
+            <div class="drop-zone disabled" id="send-drop-zone">
+              <div class="drop-zone-icon">📁</div>
+              <p class="drop-zone-text">Selecteaza un editor apoi trage fisierele aici</p>
+              <p class="drop-zone-hint">sau click pentru a selecta fisiere</p>
+            </div>
+            <div class="send-progress" id="send-progress" style="display: none;">
+              <div class="send-progress-header">
+                <span class="send-progress-target" id="send-target-name">Editor</span>
+                <span class="send-progress-stats" id="send-stats">0/0 - 0 MB/s</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar-fill" id="send-progress-bar" style="width: 0%"></div>
+              </div>
+              <p class="send-progress-file" id="send-file-name">...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Tab -->
+        <div class="tab-content" id="tab-history">
+          <div class="history-container">
+            <!-- Statistics Section -->
+            <div class="history-stats" id="history-stats">
+              <div class="stats-section">
+                <h4>Total</h4>
+                <div class="stats-grid" id="stats-total"></div>
+              </div>
+              <div class="stats-section">
+                <h4>Pe zile</h4>
+                <div class="stats-grid" id="stats-by-day"></div>
+              </div>
+              <div class="stats-section">
+                <h4>Pe fotografi</h4>
+                <div class="stats-grid" id="stats-by-photographer"></div>
+              </div>
+            </div>
+            <!-- History List Grouped by Days -->
+            <div class="history-list" id="history-list"></div>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="tab-settings">
+          <form class="settings-form" id="settings-form">
+            <div class="settings-section">
+              <h3>General</h3>
+              <div class="form-group">
+                <label>Rol</label>
+                <div class="role-selector">
+                  <label class="role-option">
+                    <input type="radio" name="settings-role" value="tagger" id="settings-role-tagger" />
+                    <span>Tagger</span>
+                  </label>
+                  <label class="role-option">
+                    <input type="radio" name="settings-role" value="editor" id="settings-role-editor" />
+                    <span>Editor</span>
+                  </label>
+                </div>
+                <p class="hint">Necesita restart server pentru a aplica</p>
+              </div>
+              <div class="form-group">
+                <label>Numele tau</label>
+                <input type="text" id="settings-name" />
+              </div>
+              <div class="form-group">
+                <label>Folder salvare</label>
+                <div class="folder-select">
+                  <input type="text" id="settings-folder" readonly />
+                  <button type="button" class="btn btn-secondary" id="settings-browse">...</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3>Template folder</h3>
+              <div class="form-group">
+                <label>Format nume folder</label>
+                <select id="settings-template">
+                  <option value="{num:02d} - {name}">01 - Nume</option>
+                  <option value="{name}_{num:03d}">Nume_001</option>
+                  <option value="{num:02d}_{name}">01_Nume</option>
+                  <option value="{date}_{num:02d} - {name}">2024-01-15_01 - Nume</option>
+                  <option value="{name}">Doar nume</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section" id="tagger-settings">
+              <h3>Setari Tagger</h3>
+              <div class="checkbox-group">
+                <input type="checkbox" id="settings-day-folders" />
+                <label for="settings-day-folders">Organizeaza pe zile (DAY 1, DAY 2...)</label>
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="settings-reset-daily" />
+                <label for="settings-reset-daily">Reseteaza numerotare zilnic</label>
+              </div>
+            </div>
+
+            <button type="submit" class="btn">Salveaza</button>
+            <button type="button" class="btn btn-secondary" id="btn-restart" style="margin-top: 12px;">Restart Server</button>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <div class="toast" id="toast">
+      <span id="toast-message"></span>
+    </div>
+
+    <!-- Modal for multiple editor selection -->
+    <div class="modal" id="editor-select-modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Selecteaza editorul</h3>
+        <div class="modal-editor-list" id="modal-editor-list"></div>
+        <button class="btn btn-secondary modal-cancel" id="modal-cancel">Anuleaza</button>
+      </div>
+    </div>
+  </body>
+</html>

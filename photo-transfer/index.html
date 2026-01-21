@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Porn Transfer</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <header class="header">
+        <img src="/src/assets/logo.svg" alt="Porn Transfer" class="logo" />
+        <input
+          type="text"
+          id="photographer-name"
+          class="name-input"
+          placeholder="Numele tau"
+        />
+      </header>
+
+      <div class="drop-zones">
+        <div class="drop-zone disabled" id="drop-tagger">
+          <h2>Tagger</h2>
+          <p>Click sau trage fisiere/foldere</p>
+          <button class="btn-folder" id="btn-folder-tagger">Selecteaza folder</button>
+          <div class="status">
+            <span class="status-dot" id="tagger-status"></span>
+            <span id="tagger-status-text">Se cauta...</span>
+          </div>
+        </div>
+
+        <div class="drop-zone disabled" id="drop-editor">
+          <h2>Editor</h2>
+          <p>Click sau trage fisiere/foldere</p>
+          <button class="btn-folder" id="btn-folder-editor">Selecteaza folder</button>
+          <div class="status">
+            <span class="status-dot" id="editor-status"></span>
+            <span id="editor-status-text">Se cauta...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="manual-connect">
+        <button class="btn-manual" id="btn-manual-connect">Conectare manuala (IP)</button>
+      </div>
+
+      <!-- Manual Connect Modal -->
+      <div class="modal" id="manual-modal" style="display: none;">
+        <div class="modal-content">
+          <h3>Conectare manuala</h3>
+          <div class="form-group">
+            <label>IP Receiver</label>
+            <input type="text" id="manual-ip" placeholder="192.168.1.21" />
+          </div>
+          <div class="modal-buttons">
+            <button class="btn btn-secondary" id="manual-cancel">Anuleaza</button>
+            <button class="btn" id="manual-confirm">Conecteaza</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Receiver Selection Modal -->
+      <div class="modal" id="receiver-select-modal" style="display: none;">
+        <div class="modal-content">
+          <h3 id="receiver-select-title">Selecteaza destinatia</h3>
+          <div class="receiver-list" id="receiver-list">
+            <!-- Populated dynamically -->
+          </div>
+          <div class="modal-buttons">
+            <button class="btn btn-secondary" id="receiver-select-cancel">Anuleaza</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Duplicate Files Modal -->
+      <div class="modal" id="duplicate-modal" style="display: none;">
+        <div class="modal-content modal-wide">
+          <h3 id="duplicate-title">Fisiere duplicate detectate</h3>
+          <p id="duplicate-info" class="duplicate-info"></p>
+          <div class="duplicate-list" id="duplicate-list">
+            <!-- Populated dynamically -->
+          </div>
+          <div class="duplicate-actions">
+            <button class="btn btn-small" id="dup-select-all">Selecteaza toate</button>
+            <button class="btn btn-small btn-secondary" id="dup-deselect-all">Deselecteaza toate</button>
+            <button class="btn btn-small btn-secondary" id="dup-select-new">Doar fisiere noi</button>
+          </div>
+          <div class="modal-buttons">
+            <button class="btn btn-secondary" id="duplicate-cancel">Anuleaza</button>
+            <button class="btn" id="duplicate-confirm">Trimite selectate</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="progress-section" id="progress-section">
+        <div class="progress-header">
+          <h3 id="progress-title">Se transfera...</h3>
+          <span class="progress-stats" id="progress-stats">0 / 0</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-details">
+          <span id="progress-file">-</span>
+          <span id="progress-speed">-</span>
+        </div>
+      </div>
+
+      <input type="file" id="file-input" multiple />
+    </main>
+
+    <div class="toast" id="toast">
+      <span id="toast-message"></span>
+    </div>
+  </body>
+</html>
