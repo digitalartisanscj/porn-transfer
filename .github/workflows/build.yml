@@ -12,7 +12,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS-ARM
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            name: macOS-Intel
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -25,6 +34,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install dependencies
         run: |
@@ -34,27 +45,43 @@ jobs:
       - name: Build Sender App
         run: |
           cd photo-transfer
-          npm run tauri build
+          npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Upload macOS Sender
-        if: matrix.platform == 'macos-latest'
+      - name: Upload macOS ARM Sender
+        if: matrix.name == 'macOS-ARM'
         uses: actions/upload-artifact@v4
         with:
-          name: PornTransfer-Sender-macOS
-          path: photo-transfer/src-tauri/target/release/bundle/dmg/*.dmg
+          name: PornTransfer-Sender-macOS-ARM
+          path: photo-transfer/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload macOS Intel Sender
+        if: matrix.name == 'macOS-Intel'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Sender-macOS-Intel
+          path: photo-transfer/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload Windows Sender
-        if: matrix.platform == 'windows-latest'
+        if: matrix.name == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Sender-Windows
-          path: photo-transfer/src-tauri/target/release/bundle/msi/*.msi
+          path: photo-transfer/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
 
   build-receiver:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS-ARM
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            name: macOS-Intel
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -67,6 +94,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install dependencies
         run: |
@@ -76,18 +105,25 @@ jobs:
       - name: Build Receiver App
         run: |
           cd porn-receiver
-          npm run tauri build
+          npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Upload macOS Receiver
-        if: matrix.platform == 'macos-latest'
+      - name: Upload macOS ARM Receiver
+        if: matrix.name == 'macOS-ARM'
         uses: actions/upload-artifact@v4
         with:
-          name: PornTransfer-Receiver-macOS
-          path: porn-receiver/src-tauri/target/release/bundle/dmg/*.dmg
+          name: PornTransfer-Receiver-macOS-ARM
+          path: porn-receiver/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload macOS Intel Receiver
+        if: matrix.name == 'macOS-Intel'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PornTransfer-Receiver-macOS-Intel
+          path: porn-receiver/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload Windows Receiver
-        if: matrix.platform == 'windows-latest'
+        if: matrix.name == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Receiver-Windows
-          path: porn-receiver/src-tauri/target/release/bundle/msi/*.msi
+          path: porn-receiver/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
