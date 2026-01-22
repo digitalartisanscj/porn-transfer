@@ -51,11 +51,8 @@ jobs:
         if: startsWith(matrix.name, 'macOS')
         run: |
           mkdir -p dist-sender
-          cd "photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
-          zip -r "$GITHUB_WORKSPACE/dist-sender/Porn Sender.app.zip" "Porn Sender.app"
-          cd "$GITHUB_WORKSPACE"
-          cp install-sender.command dist-sender/
-          chmod +x dist-sender/install-sender.command
+          cp photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-sender/
+          cp README-macOS.txt dist-sender/
 
       - name: Upload macOS ARM Sender
         if: matrix.name == 'macOS-ARM'
@@ -121,11 +118,8 @@ jobs:
         if: startsWith(matrix.name, 'macOS')
         run: |
           mkdir -p dist-receiver
-          cd "porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
-          zip -r "$GITHUB_WORKSPACE/dist-receiver/Porn Receiver.app.zip" "Porn Receiver.app"
-          cd "$GITHUB_WORKSPACE"
-          cp install-receiver.command dist-receiver/
-          chmod +x dist-receiver/install-receiver.command
+          cp porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-receiver/
+          cp README-macOS.txt dist-receiver/
 
       - name: Upload macOS ARM Receiver
         if: matrix.name == 'macOS-ARM'
