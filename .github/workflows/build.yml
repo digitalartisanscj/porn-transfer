@@ -47,28 +47,27 @@ jobs:
           cd photo-transfer
           npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Sign macOS App (ad-hoc)
+      - name: Prepare macOS Sender Package
         if: startsWith(matrix.name, 'macOS')
         run: |
-          codesign --force --deep --sign - "photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Porn Sender.app"
+          mkdir -p dist-sender
+          cp photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-sender/
+          cp install-sender.command dist-sender/
+          chmod +x dist-sender/install-sender.command
 
       - name: Upload macOS ARM Sender
         if: matrix.name == 'macOS-ARM'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Sender-macOS-ARM
-          path: |
-            photo-transfer/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            install-sender.command
+          path: dist-sender/*
 
       - name: Upload macOS Intel Sender
         if: matrix.name == 'macOS-Intel'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Sender-macOS-Intel
-          path: |
-            photo-transfer/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-            install-sender.command
+          path: dist-sender/*
 
       - name: Upload Windows Sender
         if: matrix.name == 'Windows'
@@ -116,28 +115,27 @@ jobs:
           cd porn-receiver
           npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Sign macOS App (ad-hoc)
+      - name: Prepare macOS Receiver Package
         if: startsWith(matrix.name, 'macOS')
         run: |
-          codesign --force --deep --sign - "porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Porn Receiver.app"
+          mkdir -p dist-receiver
+          cp porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-receiver/
+          cp install-receiver.command dist-receiver/
+          chmod +x dist-receiver/install-receiver.command
 
       - name: Upload macOS ARM Receiver
         if: matrix.name == 'macOS-ARM'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Receiver-macOS-ARM
-          path: |
-            porn-receiver/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            install-receiver.command
+          path: dist-receiver/*
 
       - name: Upload macOS Intel Receiver
         if: matrix.name == 'macOS-Intel'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Receiver-macOS-Intel
-          path: |
-            porn-receiver/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-            install-receiver.command
+          path: dist-receiver/*
 
       - name: Upload Windows Receiver
         if: matrix.name == 'Windows'
