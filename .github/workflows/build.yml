@@ -51,7 +51,10 @@ jobs:
         if: startsWith(matrix.name, 'macOS')
         run: |
           mkdir -p dist-sender
-          cp photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-sender/
+          # Copy the .app bundle as a zip (preserves structure better)
+          cd "photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          zip -r "../../../../../dist-sender/Porn Sender.app.zip" "Porn Sender.app"
+          cd -
           cp install-sender.command dist-sender/
           chmod +x dist-sender/install-sender.command
 
@@ -119,7 +122,10 @@ jobs:
         if: startsWith(matrix.name, 'macOS')
         run: |
           mkdir -p dist-receiver
-          cp porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist-receiver/
+          # Copy the .app bundle as a zip (preserves structure better)
+          cd "porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          zip -r "../../../../../dist-receiver/Porn Receiver.app.zip" "Porn Receiver.app"
+          cd -
           cp install-receiver.command dist-receiver/
           chmod +x dist-receiver/install-receiver.command
 
