@@ -57,14 +57,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Sender-macOS-ARM
-          path: photo-transfer/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            photo-transfer/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            install-sender.command
 
       - name: Upload macOS Intel Sender
         if: matrix.name == 'macOS-Intel'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Sender-macOS-Intel
-          path: photo-transfer/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            photo-transfer/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            install-sender.command
 
       - name: Upload Windows Sender
         if: matrix.name == 'Windows'
@@ -122,14 +126,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Receiver-macOS-ARM
-          path: porn-receiver/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            porn-receiver/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            install-receiver.command
 
       - name: Upload macOS Intel Receiver
         if: matrix.name == 'macOS-Intel'
         uses: actions/upload-artifact@v4
         with:
           name: PornTransfer-Receiver-macOS-Intel
-          path: porn-receiver/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            porn-receiver/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            install-receiver.command
 
       - name: Upload Windows Receiver
         if: matrix.name == 'Windows'
