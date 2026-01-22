@@ -47,6 +47,11 @@ jobs:
           cd photo-transfer
           npm run tauri build -- --target ${{ matrix.target }}
 
+      - name: Sign macOS App (ad-hoc)
+        if: startsWith(matrix.name, 'macOS')
+        run: |
+          codesign --force --deep --sign - "photo-transfer/src-tauri/target/${{ matrix.target }}/release/bundle/macos/photo-transfer.app"
+
       - name: Upload macOS ARM Sender
         if: matrix.name == 'macOS-ARM'
         uses: actions/upload-artifact@v4
@@ -106,6 +111,11 @@ jobs:
         run: |
           cd porn-receiver
           npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Sign macOS App (ad-hoc)
+        if: startsWith(matrix.name, 'macOS')
+        run: |
+          codesign --force --deep --sign - "porn-receiver/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Porn Receiver.app"
 
       - name: Upload macOS ARM Receiver
         if: matrix.name == 'macOS-ARM'

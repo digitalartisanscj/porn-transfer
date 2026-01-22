@@ -8,9 +8,10 @@ pub struct ServiceDiscovery {
 }
 
 impl ServiceDiscovery {
-    pub fn new<F>(mut on_service_found: F) -> Self
+    pub fn new<F, R>(mut on_service_found: F, mut on_service_removed: R) -> Self
     where
         F: FnMut(DiscoveredService) + Send + 'static,
+        R: FnMut(String) + Send + 'static,
     {
         println!("mDNS Discovery: Starting daemon...");
         let daemon = ServiceDaemon::new().expect("Failed to create mDNS daemon");
@@ -54,6 +55,7 @@ impl ServiceDiscovery {
                     }
                     ServiceEvent::ServiceRemoved(_, fullname) => {
                         println!("mDNS Discovery: Service removed - {}", fullname);
+                        on_service_removed(fullname);
                     }
                     ServiceEvent::ServiceFound(_, fullname) => {
                         println!("mDNS Discovery: Service found (not yet resolved) - {}", fullname);

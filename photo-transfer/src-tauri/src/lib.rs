@@ -371,12 +371,21 @@ async fn get_receiver_info(ip: String, port: u16) -> Result<ReceiverInfo, String
 pub fn run() {
     let discovered_services = Arc::new(Mutex::new(HashMap::new()));
     let services_clone = Arc::clone(&discovered_services);
+    let services_clone_remove = Arc::clone(&discovered_services);
 
     // Pornește service discovery
-    let discovery = ServiceDiscovery::new(move |service| {
-        let mut services = services_clone.lock().unwrap();
-        services.insert(service.name.clone(), service);
-    });
+    let discovery = ServiceDiscovery::new(
+        move |service| {
+            let mut services = services_clone.lock().unwrap();
+            services.insert(service.name.clone(), service);
+        },
+        move |fullname| {
+            let mut services = services_clone_remove.lock().unwrap();
+            // Remove service by matching fullname pattern in the stored services
+            services.retain(|name, _| !fullname.contains(name) && !name.contains(&fullname.split('.').next().unwrap_or("")));
+            println!("mDNS: Services after removal: {:?}", services.keys().collect::<Vec<_>>());
+        },
+    );
 
     let app_state = AppState {
         discovery: Arc::new(Mutex::new(discovery)),
