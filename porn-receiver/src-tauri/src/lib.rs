@@ -114,6 +114,50 @@ async fn clear_history(state: State<'_, AppState>, day: Option<String>) -> Resul
 }
 
 #[tauri::command]
+async fn sync_history_from_disk(state: State<'_, AppState>) -> Result<(), String> {
+    use config::TransferStatus;
+    use std::path::Path;
+
+    let mut history = state.history.lock().map_err(|e| e.to_string())?;
+
+    // Actualizează fiecare înregistrare pe baza fișierelor reale din folder
+    for record in history.iter_mut() {
+        let folder_path = Path::new(&record.folder);
+
+        if folder_path.exists() {
+            // Numără fișierele reale
+            if let Ok(entries) = std::fs::read_dir(folder_path) {
+                let mut count = 0usize;
+                let mut size = 0u64;
+                for entry in entries.filter_map(|e| e.ok()) {
+                    if entry.path().is_file() {
+                        count += 1;
+                        size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
+                }
+                record.file_count = count;
+                record.total_size = size;
+
+                // Dacă folderul există și are fișiere, marchează ca Complete
+                if count > 0 && record.status != TransferStatus::Complete {
+                    record.status = TransferStatus::Complete;
+                }
+            }
+        } else {
+            // Folderul nu mai există - marchează cu 0
+            record.file_count = 0;
+            record.total_size = 0;
+        }
+    }
+
+    // Elimină înregistrările cu 0 fișiere (foldere șterse)
+    history.retain(|r| r.file_count > 0);
+
+    config::save_history(&history)?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_local_ip() -> Result<String, String> {
     use std::net::UdpSocket;
 
@@ -184,6 +228,29 @@ async fn send_to_editor(
     transfer::send_files_to_editor(&service, &config.name, &config.role, &files, window).await
 }
 
+#[tauri::command]
+async fn get_temp_folders(state: State<'_, AppState>) -> Result<Vec<server::TempFolderInfo>, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let base_path = std::path::PathBuf::from(&config.base_path);
+    Ok(server::find_all_temp_folders(&base_path))
+}
+
+#[tauri::command]
+async fn delete_temp_folder(path: String) -> Result<(), String> {
+    let folder_path = std::path::Path::new(&path);
+    if folder_path.exists() && folder_path.is_dir() {
+        // Verifică că este un folder temporar (începe cu .tmp_)
+        if let Some(name) = folder_path.file_name() {
+            if name.to_string_lossy().starts_with(".tmp_") {
+                std::fs::remove_dir_all(folder_path)
+                    .map_err(|e| format!("Eroare ștergere folder: {}", e))?;
+                return Ok(());
+            }
+        }
+    }
+    Err("Nu este un folder temporar valid".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = ReceiverConfig::load().unwrap_or_default();
@@ -208,10 +275,13 @@ pub fn run() {
             is_server_running,
             get_history,
             clear_history,
+            sync_history_from_disk,
             get_local_ip,
             start_discovery,
             get_editors,
             send_to_editor,
+            get_temp_folders,
+            delete_temp_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

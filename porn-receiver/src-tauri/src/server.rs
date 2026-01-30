@@ -60,25 +60,21 @@ fn get_local_ip() -> Result<String, String> {
 }
 
 
-// Caută un folder existent pentru acest fotograf (pentru reluare transfer)
-fn find_existing_folder(base_path: &std::path::Path, photographer: &str, day_folder: Option<&str>) -> Option<std::path::PathBuf> {
-    let search_path = if let Some(day) = day_folder {
-        base_path.join(day)
-    } else {
-        base_path.to_path_buf()
-    };
-
-    if !search_path.exists() {
+// Caută un folder temporar existent pentru acest fotograf (pentru reluare transfer)
+// Folderele temporare au format: .tmp_{photographer}_{timestamp}
+fn find_temp_folder(base_path: &std::path::Path, photographer: &str) -> Option<std::path::PathBuf> {
+    if !base_path.exists() {
         return None;
     }
 
-    // Caută foldere care conțin numele fotografului
-    if let Ok(entries) = std::fs::read_dir(&search_path) {
+    let prefix = format!(".tmp_{}_", photographer.to_lowercase().replace(' ', "_"));
+
+    if let Ok(entries) = std::fs::read_dir(base_path) {
         let mut matching_folders: Vec<_> = entries
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let name = e.file_name().to_string_lossy().to_lowercase();
-                name.contains(&photographer.to_lowercase()) && e.path().is_dir()
+                name.starts_with(&prefix) && e.path().is_dir()
             })
             .collect();
 
@@ -93,6 +89,89 @@ fn find_existing_folder(base_path: &std::path::Path, photographer: &str, day_fol
     } else {
         None
     }
+}
+
+// Generează un nume de folder temporar unic
+fn generate_temp_folder_name(photographer: &str) -> String {
+    let sanitized = photographer.to_lowercase().replace(' ', "_");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!(".tmp_{}_{}", sanitized, timestamp)
+}
+
+// Găsește toate folderele temporare din calea specificată
+pub fn find_all_temp_folders(base_path: &std::path::Path) -> Vec<TempFolderInfo> {
+    let mut temp_folders = Vec::new();
+
+    if !base_path.exists() {
+        return temp_folders;
+    }
+
+    // Caută în folderul de bază
+    scan_for_temp_folders(base_path, &mut temp_folders, None);
+
+    // Caută și în subfolderele DAY (pentru taggeri)
+    if let Ok(entries) = std::fs::read_dir(base_path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("DAY ") && entry.path().is_dir() {
+                scan_for_temp_folders(&entry.path(), &mut temp_folders, Some(name));
+            }
+        }
+    }
+
+    temp_folders
+}
+
+fn scan_for_temp_folders(path: &std::path::Path, results: &mut Vec<TempFolderInfo>, day: Option<String>) {
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(".tmp_") && entry.path().is_dir() {
+                // Extrage numele fotografului din .tmp_{photographer}_{timestamp}
+                let parts: Vec<&str> = name.trim_start_matches(".tmp_").rsplitn(2, '_').collect();
+                let photographer = if parts.len() == 2 {
+                    parts[1].replace('_', " ")
+                } else {
+                    "Unknown".to_string()
+                };
+
+                // Numără fișierele
+                let (file_count, total_size) = if let Ok(files) = std::fs::read_dir(entry.path()) {
+                    let mut count = 0usize;
+                    let mut size = 0u64;
+                    for f in files.filter_map(|e| e.ok()) {
+                        if f.path().is_file() {
+                            count += 1;
+                            size += f.metadata().map(|m| m.len()).unwrap_or(0);
+                        }
+                    }
+                    (count, size)
+                } else {
+                    (0, 0)
+                };
+
+                results.push(TempFolderInfo {
+                    path: entry.path().to_string_lossy().to_string(),
+                    photographer,
+                    file_count,
+                    total_size,
+                    day: day.clone(),
+                });
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TempFolderInfo {
+    pub path: String,
+    pub photographer: String,
+    pub file_count: usize,
+    pub total_size: u64,
+    pub day: Option<String>,
 }
 
 // Caută duplicate în toată ziua curentă (toate folderele) - doar după nume
@@ -344,42 +423,30 @@ fn handle_connection(
         base_path.clone()
     };
 
-    // Caută folder existent pentru acest fotograf (pentru reluare transfer)
-    let existing_folder = find_existing_folder(&search_base, &header.photographer, None);
+    // Caută folder TEMPORAR existent pentru acest fotograf (pentru reluare transfer)
+    // Nu căutăm foldere finalizate - doar temporare pentru a relua transferul întrerupt
+    let existing_temp_folder = find_temp_folder(&search_base, &header.photographer);
 
-    // Decide dacă reluăm în folderul existent sau vom crea unul nou
-    // IMPORTANT: Nu creăm folderul încă - așteptăm confirmarea de la sender
-    let (existing_resume_folder, is_resume) = if let Some(ref existing) = existing_folder {
-        // Verifică dacă există fișiere parțial transferate
-        let existing_files_count = std::fs::read_dir(existing)
-            .map(|entries| entries.count())
-            .unwrap_or(0);
-
-        if existing_files_count > 0 && existing_files_count < header.files.len() {
-            // Transfer parțial - vom relua în același folder
-            (Some(existing.clone()), true)
-        } else {
-            // Folder complet sau gol - vom crea folder nou
-            (None, false)
-        }
+    // Dacă există folder temporar, îl folosim pentru reluare
+    let (resume_temp_folder, is_resume) = if let Some(ref temp) = existing_temp_folder {
+        (Some(temp.clone()), true)
     } else {
-        // Nu există folder - vom crea unul nou
         (None, false)
     };
 
-    // Pentru verificarea duplicatelor, folosim folderul existent dacă există
-    // sau căutăm în toată ziua/categoria
-    let mut all_duplicates = if let Some(ref resume_folder) = existing_resume_folder {
-        check_duplicates_in_folder(resume_folder, &header.files)
+    // Pentru verificarea duplicatelor, folosim folderul temporar dacă există
+    let mut all_duplicates = if let Some(ref temp_folder) = resume_temp_folder {
+        check_duplicates_in_folder(temp_folder, &header.files)
     } else {
         Vec::new()
     };
 
     // Verifică duplicate în toată ziua (doar pentru taggeri sau în alte foldere pentru editori)
+    // IMPORTANT: Nu căutăm duplicate în folderele finalizate - doar în folderul temporar curent
     let day_duplicates = if config.role == "tagger" {
-        find_duplicates_in_day(&base_path, day_folder, &header.files, existing_resume_folder.as_deref())
+        find_duplicates_in_day(&base_path, day_folder, &header.files, resume_temp_folder.as_deref())
     } else if config.role == "editor" {
-        find_duplicates_in_day(&search_base, None, &header.files, existing_resume_folder.as_deref())
+        find_duplicates_in_day(&search_base, None, &header.files, resume_temp_folder.as_deref())
     } else {
         Vec::new()
     };
@@ -391,13 +458,12 @@ fn handle_connection(
         }
     }
 
-    // Send ACK cu informații despre duplicate
-    // Notă: folder-ul indicat este orientativ - va fi creat efectiv doar la transfer
+    // Send ACK cu informații despre duplicate și folder temporar de reluare
     let ack = AckResponse {
         status: "ready".to_string(),
-        folder: existing_resume_folder.as_ref().map(|p| p.to_string_lossy().to_string()),
+        folder: resume_temp_folder.as_ref().map(|p| p.to_string_lossy().to_string()),
         duplicates: all_duplicates.clone(),
-        resume_folder: if is_resume { existing_resume_folder.as_ref().map(|p| p.to_string_lossy().to_string()) } else { None },
+        resume_folder: if is_resume { resume_temp_folder.as_ref().map(|p| p.to_string_lossy().to_string()) } else { None },
     };
     let ack_json = serde_json::to_string(&ack).map_err(|e| e.to_string())?;
     let ack_bytes = ack_json.as_bytes();
@@ -431,23 +497,25 @@ fn handle_connection(
         return Ok(());
     }
 
-    // ACUM creăm folderul - doar după ce senderul a confirmat că vrea să trimită fișiere
-    let full_path = if let Some(resume_folder) = existing_resume_folder {
-        // Folosim folderul existent pentru reluare
-        resume_folder
+    // ACUM creăm folderul TEMPORAR - sau folosim cel existent pentru reluare
+    // Folderul va fi redenumit la final cu numele numerotat
+    let (temp_path, _is_new_transfer) = if let Some(temp_folder) = resume_temp_folder {
+        // Folosim folderul temporar existent pentru reluare
+        (temp_folder, false)
     } else {
-        // Creăm folder nou - ACUM incrementăm contorul
-        let folder_name = {
-            let mut cfg = config_state.lock().map_err(|e| e.to_string())?;
-            cfg.generate_unique_folder_name(&header.photographer, &search_base)
-        };
+        // Creăm folder TEMPORAR nou - NU incrementăm contorul încă
+        let temp_folder_name = generate_temp_folder_name(&header.photographer);
         let path = if config.role == "editor" {
-            base_path.join(source_category).join(&folder_name)
+            base_path.join(source_category).join(&temp_folder_name)
+        } else if let Some(day) = day_folder {
+            base_path.join(day).join(&temp_folder_name)
         } else {
-            config.get_full_path(&folder_name)
+            base_path.join(&temp_folder_name)
         };
-        path
+        (path, true)
     };
+
+    let full_path = temp_path.clone();
 
     // Create directory - doar acum, când știm sigur că vom primi fișiere
     std::fs::create_dir_all(&full_path)
@@ -469,14 +537,36 @@ fn handle_connection(
     let total_files_count = files_to_receive.len();
     let mut files_completed: usize = 0;
 
-    // Helper function pentru salvare în istoric (folosit și la erori)
-    let save_to_history = |hist: &Arc<Mutex<Vec<TransferRecord>>>, status: TransferStatus, files_count: usize, bytes: u64| {
+    // Numără fișierele reale din folder
+    let count_real_files = || -> (usize, u64) {
+        if let Ok(entries) = std::fs::read_dir(&full_path) {
+            let mut count = 0usize;
+            let mut size = 0u64;
+            for entry in entries.filter_map(|e| e.ok()) {
+                if entry.path().is_file() {
+                    count += 1;
+                    size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+            }
+            (count, size)
+        } else {
+            (0, 0)
+        }
+    };
+
+    let folder_path_str = full_path.to_string_lossy().to_string();
+
+    // Helper function pentru salvare/actualizare în istoric
+    let save_to_history = |hist: &Arc<Mutex<Vec<TransferRecord>>>, status: TransferStatus| {
+        // Numără fișierele reale din folder
+        let (real_file_count, real_total_size) = count_real_files();
+
         let record = TransferRecord {
             timestamp: Utc::now(),
             photographer: header.photographer.clone(),
-            file_count: files_count,
-            total_size: bytes,
-            folder: full_path.to_string_lossy().to_string(),
+            file_count: real_file_count,
+            total_size: real_total_size,
+            folder: folder_path_str.clone(),
             day: if config.use_day_folders {
                 Some(config.current_day.clone())
             } else {
@@ -486,7 +576,16 @@ fn handle_connection(
         };
 
         if let Ok(mut h) = hist.lock() {
-            h.push(record.clone());
+            // Caută înregistrare existentă pentru acest folder și actualizează-o
+            if let Some(existing) = h.iter_mut().find(|r| r.folder == folder_path_str) {
+                existing.timestamp = record.timestamp;
+                existing.file_count = record.file_count;
+                existing.total_size = record.total_size;
+                existing.status = record.status.clone();
+            } else {
+                // Nu există - adaugă nouă
+                h.push(record.clone());
+            }
             let _ = save_history(&h);
         }
 
@@ -499,7 +598,7 @@ fn handle_connection(
             Ok(f) => f,
             Err(e) => {
                 // Salvează în istoric ca eroare
-                let record = save_to_history(history, TransferStatus::Error, files_completed, total_received);
+                let record = save_to_history(history, TransferStatus::Error);
                 let _ = window.emit("transfer-error", format!("Eroare creare fișier {}: {}", file_meta.name, e));
                 let _ = window.emit("transfer-partial", &record);
                 return Err(format!("Eroare creare fișier {}: {}", file_meta.name, e));
@@ -514,21 +613,21 @@ fn handle_connection(
             let bytes_read = match stream.read(&mut buffer[..to_read]) {
                 Ok(0) => {
                     // Conexiune închisă - salvează transferul parțial în istoric
-                    let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+                    let record = save_to_history(history, TransferStatus::Partial);
                     let _ = window.emit("transfer-partial", &record);
                     return Err("Conexiune închisă prematur".to_string());
                 }
                 Ok(n) => n,
                 Err(e) => {
                     // Eroare de citire (inclusiv timeout) - salvează transferul parțial
-                    let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+                    let record = save_to_history(history, TransferStatus::Partial);
                     let _ = window.emit("transfer-partial", &record);
                     return Err(format!("Eroare citire date: {}", e));
                 }
             };
 
             if let Err(e) = file.write_all(&buffer[..bytes_read]) {
-                let record = save_to_history(history, TransferStatus::Error, files_completed, total_received);
+                let record = save_to_history(history, TransferStatus::Error);
                 let _ = window.emit("transfer-partial", &record);
                 return Err(format!("Eroare scriere fișier: {}", e));
             }
@@ -559,7 +658,7 @@ fn handle_connection(
 
         // Trimite OK - fără verificare checksum
         if let Err(e) = stream.write_all(b"OK") {
-            let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+            let record = save_to_history(history, TransferStatus::Partial);
             let _ = window.emit("transfer-partial", &record);
             return Err(format!("Eroare trimitere confirmare: {}", e));
         }
@@ -567,10 +666,67 @@ fn handle_connection(
         files_completed += 1;
     }
 
-    // Record in history - transfer complet
-    let record = save_to_history(history, TransferStatus::Complete, total_files_count, total_bytes);
+    // Transfer complet! Acum redenumim folderul temporar la numele final numerotat
+    // DOAR ACUM incrementăm contorul și alocăm numărul
+    let final_folder_name = {
+        let mut cfg = config_state.lock().map_err(|e| e.to_string())?;
+        cfg.generate_unique_folder_name(&header.photographer, &search_base)
+    };
 
-    // Emit transfer complete
+    let final_path = if config.role == "editor" {
+        base_path.join(source_category).join(&final_folder_name)
+    } else {
+        config.get_full_path(&final_folder_name)
+    };
+
+    // Redenumește folderul temporar la numele final
+    std::fs::rename(&temp_path, &final_path)
+        .map_err(|e| format!("Eroare redenumire folder: {}", e))?;
+
+    // Actualizează folder_path_str pentru salvarea în istoric
+    let final_folder_path_str = final_path.to_string_lossy().to_string();
+
+    // Numără fișierele reale din folderul final
+    let (final_file_count, final_total_size) = {
+        if let Ok(entries) = std::fs::read_dir(&final_path) {
+            let mut count = 0usize;
+            let mut size = 0u64;
+            for entry in entries.filter_map(|e| e.ok()) {
+                if entry.path().is_file() {
+                    count += 1;
+                    size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+            }
+            (count, size)
+        } else {
+            (files_completed, total_bytes)
+        }
+    };
+
+    // Salvează în istoric cu calea finală
+    let record = TransferRecord {
+        timestamp: Utc::now(),
+        photographer: header.photographer.clone(),
+        file_count: final_file_count,
+        total_size: final_total_size,
+        folder: final_folder_path_str.clone(),
+        day: if config.use_day_folders {
+            Some(config.current_day.clone())
+        } else {
+            None
+        },
+        status: TransferStatus::Complete,
+    };
+
+    if let Ok(mut h) = history.lock() {
+        // Elimină orice înregistrare anterioară pentru folderul temporar
+        h.retain(|r| r.folder != folder_path_str);
+        // Adaugă înregistrarea cu folderul final
+        h.push(record.clone());
+        let _ = save_history(&h);
+    }
+
+    // Emit transfer complete cu folderul final
     let _ = window.emit("transfer-complete", &record);
 
     Ok(())

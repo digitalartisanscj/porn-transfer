@@ -51,6 +51,14 @@ interface SendProgress {
   target_name: string;
 }
 
+interface TempFolderInfo {
+  path: string;
+  photographer: string;
+  file_count: number;
+  total_size: number;
+  day: string | null;
+}
+
 let config: ReceiverConfig | null = null;
 let activeTransfers: Map<string, TransferProgress> = new Map();
 let discoveredEditors: DiscoveredEditor[] = [];
@@ -81,6 +89,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   await setupTauriListeners(); // Must be before loadConfig to catch server-started event
   await loadConfig();
   await showLocalIP();
+  await checkTempFolders(); // Verifică foldere temporare la pornire
 });
 
 function initElements() {
@@ -468,6 +477,8 @@ function updateTransfersUI() {
 
 async function loadHistory() {
   try {
+    // Sincronizează istoricul cu fișierele reale de pe disc
+    await invoke("sync_history_from_disk");
     const history = await invoke<TransferRecord[]>("get_history");
     const list = document.getElementById("history-list")!;
     const statsTotal = document.getElementById("stats-total")!;
@@ -696,6 +707,101 @@ async function clearDayHistory(day: string) {
     loadHistory();
   } catch (e) {
     showToast(`Eroare: ${e}`, "error");
+  }
+}
+
+// Verifică foldere temporare la pornirea aplicației
+async function checkTempFolders() {
+  try {
+    const tempFolders = await invoke<TempFolderInfo[]>("get_temp_folders");
+
+    if (tempFolders.length === 0) {
+      return; // Nu există foldere temporare
+    }
+
+    // Afișează dialog pentru fiecare folder temporar
+    const modal = document.createElement("div");
+    modal.className = "temp-folders-modal";
+    modal.innerHTML = `
+      <div class="temp-folders-content">
+        <h3>Transferuri întrerupte găsite</h3>
+        <p>S-au găsit ${tempFolders.length} folder(e) cu transferuri nefinalizate:</p>
+        <div class="temp-folders-list">
+          ${tempFolders.map((folder, index) => `
+            <div class="temp-folder-item" data-path="${folder.path}" data-index="${index}">
+              <div class="temp-folder-info">
+                <span class="temp-folder-photographer">${folder.photographer}</span>
+                <span class="temp-folder-details">${folder.file_count} fișiere - ${formatSize(folder.total_size)}</span>
+                ${folder.day ? `<span class="temp-folder-day">${folder.day}</span>` : ''}
+              </div>
+              <div class="temp-folder-actions">
+                <button class="btn-temp-keep" data-path="${folder.path}" title="Păstrează pentru reluare">
+                  Păstrează
+                </button>
+                <button class="btn-temp-delete" data-path="${folder.path}" title="Șterge folderul">
+                  Șterge
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="temp-folders-footer">
+          <button class="btn-temp-close">Închide</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Handler pentru butonul de păstrare
+    modal.querySelectorAll(".btn-temp-keep").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = btn.closest(".temp-folder-item");
+        if (item) {
+          item.classList.add("temp-folder-kept");
+          showToast("Folderul va fi reluat la următorul transfer", "success");
+        }
+      });
+    });
+
+    // Handler pentru butonul de ștergere
+    modal.querySelectorAll(".btn-temp-delete").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const path = btn.getAttribute("data-path");
+        if (path && confirm("Ești sigur că vrei să ștergi acest folder?\n\nFișierele vor fi pierdute definitiv!")) {
+          try {
+            await invoke("delete_temp_folder", { path });
+            const item = btn.closest(".temp-folder-item");
+            if (item) {
+              item.remove();
+            }
+            showToast("Folder șters cu succes", "success");
+
+            // Dacă nu mai sunt foldere, închide modalul
+            if (modal.querySelectorAll(".temp-folder-item").length === 0) {
+              modal.remove();
+            }
+          } catch (e) {
+            showToast(`Eroare: ${e}`, "error");
+          }
+        }
+      });
+    });
+
+    // Handler pentru închidere
+    modal.querySelector(".btn-temp-close")?.addEventListener("click", () => {
+      modal.remove();
+    });
+
+    // Închide la click pe fundal
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+
+  } catch (e) {
+    console.error("Error checking temp folders:", e);
   }
 }
 

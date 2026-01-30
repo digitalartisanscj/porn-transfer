@@ -875,3 +875,144 @@ body {
 .modal-cancel {
   width: 100%;
 }
+
+/* Temp Folders Modal */
+.temp-folders-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.temp-folders-content {
+  background: var(--bg-card);
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  padding: 24px;
+  width: 100%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.temp-folders-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--orange);
+  margin-bottom: 8px;
+}
+
+.temp-folders-content p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.temp-folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.temp-folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.temp-folder-item.temp-folder-kept {
+  border-color: var(--success);
+  opacity: 0.7;
+}
+
+.temp-folder-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.temp-folder-photographer {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.temp-folder-details {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.temp-folder-day {
+  font-size: 11px;
+  color: var(--orange);
+  padding: 2px 6px;
+  background: rgba(255, 144, 0, 0.2);
+  border-radius: 3px;
+  width: fit-content;
+}
+
+.temp-folder-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-temp-keep,
+.btn-temp-delete {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-temp-keep {
+  background: var(--bg-card);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.btn-temp-keep:hover {
+  background: var(--success);
+  color: white;
+}
+
+.btn-temp-delete {
+  background: var(--bg-card);
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+.btn-temp-delete:hover {
+  background: var(--error);
+  color: white;
+}
+
+.temp-folders-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-temp-close {
+  padding: 8px 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-temp-close:hover {
+  border-color: var(--orange);
+}
