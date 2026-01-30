@@ -96,6 +96,24 @@ async fn get_history(state: State<'_, AppState>) -> Result<Vec<TransferRecord>, 
 }
 
 #[tauri::command]
+async fn clear_history(state: State<'_, AppState>, day: Option<String>) -> Result<(), String> {
+    let mut history = state.history.lock().map_err(|e| e.to_string())?;
+
+    if let Some(day_to_clear) = day {
+        // Șterge doar intrările din ziua specificată
+        history.retain(|record| {
+            record.day.as_ref() != Some(&day_to_clear)
+        });
+    } else {
+        // Șterge tot istoricul
+        history.clear();
+    }
+
+    config::save_history(&history)?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_local_ip() -> Result<String, String> {
     use std::net::UdpSocket;
 
@@ -189,6 +207,7 @@ pub fn run() {
             stop_server,
             is_server_running,
             get_history,
+            clear_history,
             get_local_ip,
             start_discovery,
             get_editors,

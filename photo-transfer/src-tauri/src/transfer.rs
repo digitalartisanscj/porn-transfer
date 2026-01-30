@@ -2,10 +2,11 @@ use crate::{DiscoveredService, FileInfo, TransferProgress};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunks pentru viteză maximă
+const TCP_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Serialize, Deserialize)]
 struct TransferHeader {
@@ -63,6 +64,14 @@ pub fn check_duplicates(
     stream
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
+
+    // Set timeout pentru detectarea deconectărilor
+    stream
+        .set_read_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS)))
+        .map_err(|e| format!("Eroare setare read timeout: {}", e))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS)))
+        .map_err(|e| format!("Eroare setare write timeout: {}", e))?;
 
     // Construiește metadata FĂRĂ checksum
     let file_metadata: Vec<FileMetadata> = files
@@ -166,6 +175,14 @@ pub async fn send_files_with_selection(
     stream
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
+
+    // Set timeout pentru detectarea deconectărilor
+    stream
+        .set_read_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS)))
+        .map_err(|e| format!("Eroare setare read timeout: {}", e))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS)))
+        .map_err(|e| format!("Eroare setare write timeout: {}", e))?;
 
     // Construiește metadata FĂRĂ checksum
     let file_metadata: Vec<FileMetadata> = files_filtered

@@ -145,6 +145,16 @@ pub struct TransferRecord {
     pub total_size: u64,
     pub folder: String,
     pub day: Option<String>,
+    #[serde(default)]
+    pub status: TransferStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum TransferStatus {
+    #[default]
+    Complete,
+    Partial,
+    Error,
 }
 
 fn history_path() -> PathBuf {
@@ -169,4 +179,12 @@ pub fn save_history(history: &[TransferRecord]) -> Result<(), String> {
     let to_save: Vec<_> = history.iter().rev().take(500).cloned().collect();
     let content = serde_json::to_string_pretty(&to_save).map_err(|e| e.to_string())?;
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+pub fn clear_history() -> Result<(), String> {
+    let path = history_path();
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

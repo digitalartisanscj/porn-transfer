@@ -1,4 +1,4 @@
-use crate::config::{save_history, ReceiverConfig, TransferRecord};
+use crate::config::{save_history, ReceiverConfig, TransferRecord, TransferStatus};
 use crate::TransferProgress;
 use chrono::Utc;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
+
+const TCP_TIMEOUT_SECS: u64 = 30;
 
 const SERVICE_TYPE: &str = "_phototransfer._tcp.local.";
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB
@@ -280,6 +282,10 @@ fn handle_connection(
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
     stream.set_nodelay(true).map_err(|e| e.to_string())?;
 
+    // Set timeout pentru a detecta deconectări
+    stream.set_read_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS))).map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS))).map_err(|e| e.to_string())?;
+
     // Read header length
     let mut len_buf = [0u8; 4];
     stream
@@ -461,27 +467,71 @@ fn handle_connection(
     let mut total_received: u64 = 0;
     let start_time = Instant::now();
     let total_files_count = files_to_receive.len();
+    let mut files_completed: usize = 0;
+
+    // Helper function pentru salvare în istoric (folosit și la erori)
+    let save_to_history = |hist: &Arc<Mutex<Vec<TransferRecord>>>, status: TransferStatus, files_count: usize, bytes: u64| {
+        let record = TransferRecord {
+            timestamp: Utc::now(),
+            photographer: header.photographer.clone(),
+            file_count: files_count,
+            total_size: bytes,
+            folder: full_path.to_string_lossy().to_string(),
+            day: if config.use_day_folders {
+                Some(config.current_day.clone())
+            } else {
+                None
+            },
+            status,
+        };
+
+        if let Ok(mut h) = hist.lock() {
+            h.push(record.clone());
+            let _ = save_history(&h);
+        }
+
+        record
+    };
 
     for (index, file_meta) in files_to_receive.iter().enumerate() {
         let file_path = full_path.join(&file_meta.name);
-        let mut file = std::fs::File::create(&file_path)
-            .map_err(|e| format!("Eroare creare fișier {}: {}", file_meta.name, e))?;
+        let mut file = match std::fs::File::create(&file_path) {
+            Ok(f) => f,
+            Err(e) => {
+                // Salvează în istoric ca eroare
+                let record = save_to_history(history, TransferStatus::Error, files_completed, total_received);
+                let _ = window.emit("transfer-error", format!("Eroare creare fișier {}: {}", file_meta.name, e));
+                let _ = window.emit("transfer-partial", &record);
+                return Err(format!("Eroare creare fișier {}: {}", file_meta.name, e));
+            }
+        };
 
         let mut file_received: u64 = 0;
         let mut buffer = vec![0u8; CHUNK_SIZE];
 
         while file_received < file_meta.size {
             let to_read = std::cmp::min(CHUNK_SIZE, (file_meta.size - file_received) as usize);
-            let bytes_read = stream
-                .read(&mut buffer[..to_read])
-                .map_err(|e| format!("Eroare citire date: {}", e))?;
+            let bytes_read = match stream.read(&mut buffer[..to_read]) {
+                Ok(0) => {
+                    // Conexiune închisă - salvează transferul parțial în istoric
+                    let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+                    let _ = window.emit("transfer-partial", &record);
+                    return Err("Conexiune închisă prematur".to_string());
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    // Eroare de citire (inclusiv timeout) - salvează transferul parțial
+                    let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+                    let _ = window.emit("transfer-partial", &record);
+                    return Err(format!("Eroare citire date: {}", e));
+                }
+            };
 
-            if bytes_read == 0 {
-                return Err("Conexiune închisă prematur".to_string());
+            if let Err(e) = file.write_all(&buffer[..bytes_read]) {
+                let record = save_to_history(history, TransferStatus::Error, files_completed, total_received);
+                let _ = window.emit("transfer-partial", &record);
+                return Err(format!("Eroare scriere fișier: {}", e));
             }
-
-            file.write_all(&buffer[..bytes_read])
-                .map_err(|e| format!("Eroare scriere fișier: {}", e))?;
 
             file_received += bytes_read as u64;
             total_received += bytes_read as u64;
@@ -508,30 +558,17 @@ fn handle_connection(
         }
 
         // Trimite OK - fără verificare checksum
-        stream
-            .write_all(b"OK")
-            .map_err(|e| format!("Eroare trimitere confirmare: {}", e))?;
+        if let Err(e) = stream.write_all(b"OK") {
+            let record = save_to_history(history, TransferStatus::Partial, files_completed, total_received);
+            let _ = window.emit("transfer-partial", &record);
+            return Err(format!("Eroare trimitere confirmare: {}", e));
+        }
+
+        files_completed += 1;
     }
 
-    // Record in history
-    let record = TransferRecord {
-        timestamp: Utc::now(),
-        photographer: header.photographer.clone(),
-        file_count: total_files_count,
-        total_size: total_bytes,
-        folder: full_path.to_string_lossy().to_string(),
-        day: if config.use_day_folders {
-            Some(config.current_day.clone())
-        } else {
-            None
-        },
-    };
-
-    {
-        let mut hist = history.lock().map_err(|e| e.to_string())?;
-        hist.push(record.clone());
-        let _ = save_history(&hist);
-    }
+    // Record in history - transfer complet
+    let record = save_to_history(history, TransferStatus::Complete, total_files_count, total_bytes);
 
     // Emit transfer complete
     let _ = window.emit("transfer-complete", &record);

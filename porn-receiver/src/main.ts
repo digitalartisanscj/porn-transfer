@@ -31,6 +31,7 @@ interface TransferRecord {
   total_size: number;
   folder: string;
   day: string | null;
+  status?: "Complete" | "Partial" | "Error";
 }
 
 interface DiscoveredEditor {
@@ -56,6 +57,8 @@ let discoveredEditors: DiscoveredEditor[] = [];
 let selectedEditor: DiscoveredEditor | null = null;
 let pendingFiles: string[] = [];
 let discoveryInterval: number | null = null;
+let resetClickCount = 0;
+let resetClickTimer: number | null = null;
 
 // DOM Elements
 let setupScreen: HTMLElement;
@@ -326,6 +329,12 @@ async function setupTauriListeners() {
     showToast(`Eroare transfer: ${event.payload}`, "error");
   });
 
+  await listen<TransferRecord>("transfer-partial", (event) => {
+    const record = event.payload;
+    showToast(`Transfer întrerupt: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
+    loadHistory();
+  });
+
   // Send listeners
   await setupSendListeners();
 }
@@ -541,11 +550,16 @@ async function loadHistory() {
     });
 
     statsByDay.innerHTML = sortedDays.map(([day, stats]) => `
-      <div class="stat-row">
+      <div class="stat-row day-stat-row" data-day="${day}">
         <span class="stat-label">${day}</span>
         <span class="stat-value">${stats.files} poze (${stats.photographers.size} fotografi)</span>
       </div>
     `).join('');
+
+    // Adaugă click handler pentru reset pe ziua curentă (triple-click)
+    statsByDay.querySelectorAll('.day-stat-row').forEach((row) => {
+      row.addEventListener('click', () => handleDayResetClick(row.getAttribute('data-day')!));
+    });
 
     // Render stats by photographer
     const sortedPhotographers = Array.from(byPhotographer.entries()).sort((a, b) => b[1].files - a[1].files);
@@ -651,6 +665,38 @@ function showToast(message: string, type: "success" | "error") {
   setTimeout(() => {
     toast.classList.remove("show");
   }, 3000);
+}
+
+// Reset history pentru o zi specifică - necesită triple-click + confirmare
+function handleDayResetClick(day: string) {
+  resetClickCount++;
+
+  if (resetClickTimer) {
+    clearTimeout(resetClickTimer);
+  }
+
+  if (resetClickCount === 3) {
+    // Triple-click detectat - arată confirmare
+    resetClickCount = 0;
+    if (confirm(`Ești sigur că vrei să ștergi istoricul pentru ${day}?\n\nAceastă acțiune nu poate fi anulată!`)) {
+      clearDayHistory(day);
+    }
+  } else {
+    // Reset counter după 500ms
+    resetClickTimer = setTimeout(() => {
+      resetClickCount = 0;
+    }, 500) as unknown as number;
+  }
+}
+
+async function clearDayHistory(day: string) {
+  try {
+    await invoke("clear_history", { day });
+    showToast(`Istoricul pentru ${day} a fost șters`, "success");
+    loadHistory();
+  } catch (e) {
+    showToast(`Eroare: ${e}`, "error");
+  }
 }
 
 // ==================== SEND FUNCTIONALITY ====================
