@@ -468,7 +468,6 @@ fn handle_connection(
             .map_err(|e| format!("Eroare creare fișier {}: {}", file_meta.name, e))?;
 
         let mut file_received: u64 = 0;
-        let mut md5_context = md5::Context::new();
         let mut buffer = vec![0u8; CHUNK_SIZE];
 
         while file_received < file_meta.size {
@@ -483,8 +482,6 @@ fn handle_connection(
 
             file.write_all(&buffer[..bytes_read])
                 .map_err(|e| format!("Eroare scriere fișier: {}", e))?;
-
-            md5_context.consume(&buffer[..bytes_read]);
 
             file_received += bytes_read as u64;
             total_received += bytes_read as u64;
@@ -510,16 +507,9 @@ fn handle_connection(
             let _ = window.emit("transfer-progress", &progress);
         }
 
-        // Verify checksum
-        let computed_checksum = format!("{:x}", md5_context.compute());
-        let response = if computed_checksum == file_meta.checksum {
-            "OK"
-        } else {
-            "CHECKSUM_ERROR"
-        };
-
+        // Trimite OK - fără verificare checksum
         stream
-            .write_all(response.as_bytes())
+            .write_all(b"OK")
             .map_err(|e| format!("Eroare trimitere confirmare: {}", e))?;
     }
 

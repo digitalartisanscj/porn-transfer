@@ -253,11 +253,12 @@ async function setupTauriListeners() {
     progressFile.textContent = `Se folosesc ${event.payload} checksums din cache`;
   });
 
-  // Transfer progress
+  // Transfer progress - se schimbă titlul la "Se transferă..."
   await listen<TransferProgress>("transfer-progress", (event) => {
     const p = event.payload;
     const percent = (p.bytes_sent / p.total_bytes) * 100;
 
+    progressTitle.textContent = "Se transferă...";
     progressBar.style.width = `${percent}%`;
     progressStats.textContent = `${p.file_index + 1} / ${p.total_files} fișiere`;
     progressFile.textContent = p.file_name;
@@ -475,11 +476,11 @@ async function sendFilesToReceiver(receiver: DiscoveredService, paths: string[])
       return;
     }
 
-    // Update status for checksum progress
-    progressTitle.textContent = "Se calculează checksums...";
+    // Update status - verificare duplicate (instant, fără checksum)
+    progressTitle.textContent = "Se verifică duplicate...";
     progressFile.textContent = `${expandedPaths.length} fișiere găsite.`;
 
-    // Now check for duplicates with expanded paths
+    // Now check for duplicates with expanded paths (by name only - instant)
     const result = await invoke<DuplicateCheckResult>("check_duplicates_before_send", {
       targetHost: receiver.host,
       targetPort: receiver.port,
@@ -653,15 +654,15 @@ function setupDuplicateModal() {
 
 async function startTransfer(receiver: DiscoveredService, paths: string[], name: string) {
   isTransferring = true;
-    disableDropZones();
+  disableDropZones();
 
   // Show progress
   progressSection.classList.add("active");
   progressBar.style.width = "0%";
   progressTitle.textContent = `Se trimite la ${receiver.name}...`;
   progressStats.textContent = `0 / ${paths.length} fișiere`;
-  progressFile.textContent = "Se pregătește...";
-  progressSpeed.textContent = "- MB/s";
+  progressFile.textContent = "Se conectează...";
+  progressSpeed.textContent = "";
 
   try {
     await invoke("send_files_to_host", {
@@ -686,15 +687,15 @@ async function startTransferWithSelection(
   filesToSend: string[]
 ) {
   isTransferring = true;
-    disableDropZones();
+  disableDropZones();
 
   // Show progress
   progressSection.classList.add("active");
   progressBar.style.width = "0%";
   progressTitle.textContent = `Se trimite la ${receiver.name}...`;
   progressStats.textContent = `0 / ${filesToSend.length} fișiere`;
-  progressFile.textContent = "Se pregătește...";
-  progressSpeed.textContent = "- MB/s";
+  progressFile.textContent = "Se conectează...";
+  progressSpeed.textContent = "";
 
   try {
     await invoke("send_files_with_selection", {
