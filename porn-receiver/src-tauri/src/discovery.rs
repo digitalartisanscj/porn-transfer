@@ -93,8 +93,9 @@ impl ServiceDiscovery {
 
     pub fn get_editors(&self) -> Vec<DiscoveredService> {
         let svcs = self.services.lock().unwrap();
+        // Returnează TOȚI receiver-ii (editor sau tagger) - filtrarea se face în UI dacă e nevoie
+        // Astfel un editor poate trimite la alt editor, și un tagger poate trimite la editor
         svcs.values()
-            .filter(|s| s.role == "editor")
             .cloned()
             .collect()
     }

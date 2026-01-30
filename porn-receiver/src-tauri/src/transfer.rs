@@ -6,6 +6,24 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tauri::Emitter;
 
+/// Deschide un fișier pentru citire, cu suport pentru sharing pe Windows
+fn open_file_for_read(path: &str) -> std::io::Result<std::fs::File> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE = 0x7
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x7)
+            .open(path)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::File::open(path)
+    }
+}
+
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunks
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,12 +136,24 @@ pub async fn send_files_to_editor(
         return Err(format!("Receiver nu e gata: {}", ack.status));
     }
 
+    // Trimite lista de fișiere de transferat (serverul așteaptă această listă)
+    let files_to_send: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
+    let decision_json = serde_json::to_string(&files_to_send).map_err(|e| e.to_string())?;
+    let decision_bytes = decision_json.as_bytes();
+
+    stream
+        .write_all(&(decision_bytes.len() as u32).to_be_bytes())
+        .map_err(|e| format!("Eroare trimitere decizie len: {}", e))?;
+    stream
+        .write_all(decision_bytes)
+        .map_err(|e| format!("Eroare trimitere decizie: {}", e))?;
+
     // Trimite fișierele
     let mut total_sent: u64 = 0;
     let start_time = Instant::now();
 
     for (index, file) in files.iter().enumerate() {
-        let mut file_handle = std::fs::File::open(&file.path)
+        let mut file_handle = open_file_for_read(&file.path)
             .map_err(|e| format!("Nu pot deschide {}: {}", file.name, e))?;
 
         let mut buffer = vec![0u8; CHUNK_SIZE];

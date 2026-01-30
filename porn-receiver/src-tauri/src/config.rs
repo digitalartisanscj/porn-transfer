@@ -15,6 +15,12 @@ pub struct ReceiverConfig {
     pub reset_numbering_daily: bool, // Reset contor zilnic
     #[serde(default)]
     pub day_counters: HashMap<String, u32>, // Contoare separate pentru fiecare zi
+    #[serde(default = "default_port")]
+    pub port: u16,              // Portul TCP (diferit pentru tagger și editor pe același Mac)
+}
+
+fn default_port() -> u16 {
+    45678
 }
 
 impl Default for ReceiverConfig {
@@ -35,6 +41,7 @@ impl Default for ReceiverConfig {
             current_day: "DAY 1".to_string(),
             reset_numbering_daily: true,
             day_counters: HashMap::new(),
+            port: 45678,
         }
     }
 }

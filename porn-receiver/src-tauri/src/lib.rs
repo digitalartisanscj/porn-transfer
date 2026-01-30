@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
-const PORT: u16 = 45678;
+const DEFAULT_PORT: u16 = 45678;
 
 pub struct AppState {
     pub config: Arc<Mutex<ReceiverConfig>>,
@@ -73,8 +73,11 @@ async fn start_server(
     // Reset flag la pornirea serverului
     is_cancelled.store(false, Ordering::Relaxed);
 
+    // Folosește portul din config sau default
+    let port = if config.port > 0 { config.port } else { DEFAULT_PORT };
+
     std::thread::spawn(move || {
-        if let Err(e) = server::run_server(PORT, config, config_state, history, is_running, is_cancelled, window) {
+        if let Err(e) = server::run_server(port, config, config_state, history, is_running, is_cancelled, window) {
             eprintln!("Server error: {}", e);
         }
     });
@@ -105,14 +108,25 @@ async fn get_history(state: State<'_, AppState>) -> Result<Vec<TransferRecord>, 
 async fn clear_history(state: State<'_, AppState>, day: Option<String>) -> Result<(), String> {
     let mut history = state.history.lock().map_err(|e| e.to_string())?;
 
-    if let Some(day_to_clear) = day {
+    if let Some(ref day_to_clear) = day {
         // Șterge doar intrările din ziua specificată
         history.retain(|record| {
-            record.day.as_ref() != Some(&day_to_clear)
+            record.day.as_ref() != Some(day_to_clear)
         });
+
+        // Resetează counter-ul pentru ziua respectivă
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.day_counters.remove(day_to_clear);
+        config.save()?;
     } else {
         // Șterge tot istoricul
         history.clear();
+
+        // Resetează toate counter-urile
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.day_counters.clear();
+        config.folder_counter = 1;
+        config.save()?;
     }
 
     config::save_history(&history)?;
@@ -248,6 +262,23 @@ async fn cancel_current_transfer(state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
+async fn get_day_counter(state: State<'_, AppState>, day: String) -> Result<u32, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    Ok(*config.day_counters.get(&day).unwrap_or(&1))
+}
+
+#[tauri::command]
+async fn set_day_counter(state: State<'_, AppState>, day: String, value: u32) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    if value < 1 {
+        return Err("Counter-ul trebuie să fie minim 1".to_string());
+    }
+    config.day_counters.insert(day, value);
+    config.save()?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn delete_temp_folder(path: String) -> Result<(), String> {
     let folder_path = std::path::Path::new(&path);
     if folder_path.exists() && folder_path.is_dir() {
@@ -296,6 +327,8 @@ pub fn run() {
             get_temp_folders,
             delete_temp_folder,
             cancel_current_transfer,
+            get_day_counter,
+            set_day_counter,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

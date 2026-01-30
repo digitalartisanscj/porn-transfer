@@ -12,6 +12,7 @@ interface ReceiverConfig {
   use_day_folders: boolean;
   current_day: string;
   reset_numbering_daily: boolean;
+  port: number;
 }
 
 interface TransferProgress {
@@ -172,6 +173,7 @@ function setupEventListeners() {
       use_day_folders: role === "tagger",
       current_day: "DAY 1",
       reset_numbering_daily: true,
+      port: 45678,
     };
 
     try {
@@ -208,6 +210,7 @@ function setupEventListeners() {
     config.folder_template = (document.getElementById("settings-template") as HTMLSelectElement).value;
     config.use_day_folders = (document.getElementById("settings-day-folders") as HTMLInputElement).checked;
     config.reset_numbering_daily = (document.getElementById("settings-reset-daily") as HTMLInputElement).checked;
+    config.port = parseInt((document.getElementById("settings-port") as HTMLInputElement).value, 10) || 45678;
 
     try {
       await invoke("save_config", { config });
@@ -242,8 +245,27 @@ function setupEventListeners() {
     config.current_day = currentDayInput.value;
     try {
       await invoke("save_config", { config });
+      await loadDayCounter(); // Reload counter for new day
     } catch (e) {
       console.error("Error saving day:", e);
+    }
+  });
+
+  // Day counter input
+  const dayCounterInput = document.getElementById("day-counter") as HTMLInputElement;
+  dayCounterInput.addEventListener("change", async () => {
+    if (!config) return;
+    const value = parseInt(dayCounterInput.value, 10);
+    if (isNaN(value) || value < 1) {
+      dayCounterInput.value = "1";
+      return;
+    }
+    try {
+      await invoke("set_day_counter", { day: config.current_day, value });
+      showToast(`Următorul folder va fi ${value.toString().padStart(2, '0')}`, "success");
+    } catch (e) {
+      console.error("Error saving counter:", e);
+      showToast(`Eroare: ${e}`, "error");
     }
   });
 
@@ -255,6 +277,7 @@ function setupEventListeners() {
       currentDayInput.value = config.current_day;
       try {
         await invoke("save_config", { config });
+        await loadDayCounter();
       } catch (e) {
         console.error("Error saving day:", e);
       }
@@ -268,6 +291,7 @@ function setupEventListeners() {
     currentDayInput.value = config.current_day;
     try {
       await invoke("save_config", { config });
+      await loadDayCounter();
     } catch (e) {
       console.error("Error saving day:", e);
     }
@@ -368,6 +392,7 @@ function showMainContent() {
     (document.getElementById("settings-day-folders") as HTMLInputElement).checked = config.use_day_folders;
     (document.getElementById("settings-reset-daily") as HTMLInputElement).checked = config.reset_numbering_daily;
     (document.getElementById("current-day") as HTMLInputElement).value = config.current_day;
+    (document.getElementById("settings-port") as HTMLInputElement).value = (config.port || 45678).toString();
 
     // Set role radio button
     if (config.role === "tagger") {
@@ -390,6 +415,7 @@ function updateUIForRole() {
     // Tagger poate trimite către editori
     tabSendBtn.style.display = "block";
     startDiscovery();
+    loadDayCounter(); // Load counter for current day
   } else if (config.role === "editor") {
     daySelector.style.display = "none";
     taggerSettings.style.display = "none";
@@ -675,6 +701,17 @@ function extractDayParts(day: string): { prefix: string; num: number } {
   return { prefix: "DAY ", num: 1 };
 }
 
+async function loadDayCounter() {
+  if (!config) return;
+  try {
+    const counter = await invoke<number>("get_day_counter", { day: config.current_day });
+    const dayCounterInput = document.getElementById("day-counter") as HTMLInputElement;
+    dayCounterInput.value = counter.toString();
+  } catch (e) {
+    console.error("Error loading day counter:", e);
+  }
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -943,10 +980,11 @@ function updateEditorsUI() {
     if (selectedEditor && selectedEditor.name === editor.name) {
       item.classList.add("selected");
     }
+    const roleLabel = editor.role === "editor" ? "Editor" : editor.role === "tagger" ? "Tagger" : editor.role;
     item.innerHTML = `
       <div class="editor-info">
         <span class="editor-name">${editor.name}</span>
-        <span class="editor-ip">${editor.host}:${editor.port}</span>
+        <span class="editor-ip">${editor.host}:${editor.port} (${roleLabel})</span>
       </div>
       <span class="editor-status"></span>
     `;

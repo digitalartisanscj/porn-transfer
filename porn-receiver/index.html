@@ -65,6 +65,10 @@
             <input type="text" id="current-day" value="DAY 1" />
             <button type="button" class="day-btn" id="day-next">+</button>
           </div>
+          <div class="counter-controls">
+            <label>Urmatorul folder:</label>
+            <input type="number" id="day-counter" min="1" value="1" />
+          </div>
         </div>
 
         <!-- Tabs -->
@@ -165,6 +169,11 @@
                   <input type="text" id="settings-folder" readonly />
                   <button type="button" class="btn btn-secondary" id="settings-browse">...</button>
                 </div>
+              </div>
+              <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="settings-port" min="1024" max="65535" value="45678" />
+                <p class="hint">Portul pe care asculta serverul (default: 45678)</p>
               </div>
             </div>
 

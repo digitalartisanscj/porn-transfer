@@ -613,6 +613,43 @@ body {
   color: var(--orange);
 }
 
+/* Counter Controls (next to day selector) */
+.counter-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+
+.counter-controls label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.counter-controls input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--orange);
+  font-size: 14px;
+  font-weight: 600;
+  width: 60px;
+  text-align: center;
+}
+
+.counter-controls input:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.counter-controls input::-webkit-inner-spin-button,
+.counter-controls input::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
 /* Toast */
 .toast {
   position: fixed;
