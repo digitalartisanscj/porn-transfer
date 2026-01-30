@@ -5,6 +5,7 @@ use discovery::ServiceDiscovery;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -12,6 +13,7 @@ use tauri::State;
 pub struct AppState {
     pub discovery: Arc<Mutex<ServiceDiscovery>>,
     pub discovered_services: Arc<Mutex<HashMap<String, DiscoveredService>>>,
+    pub is_transfer_cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,12 +85,15 @@ async fn send_files(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    // Trimite fișierele
-    transfer::send_files_to_receiver(&service, &photographer_name, &files, window).await
+    // Reset flag și trimite fișierele
+    state.is_transfer_cancelled.store(false, Ordering::Relaxed);
+    let is_cancelled = Arc::clone(&state.is_transfer_cancelled);
+    transfer::send_files_to_receiver(&service, &photographer_name, &files, is_cancelled, window).await
 }
 
 #[tauri::command]
 async fn send_files_to_host(
+    state: State<'_, AppState>,
     target_host: String,
     target_port: u16,
     photographer_name: String,
@@ -121,8 +126,10 @@ async fn send_files_to_host(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    // Trimite fișierele (checksum se calculează în transfer)
-    transfer::send_files_to_receiver(&service, &photographer_name, &files, window).await
+    // Reset flag și trimite fișierele
+    state.is_transfer_cancelled.store(false, Ordering::Relaxed);
+    let is_cancelled = Arc::clone(&state.is_transfer_cancelled);
+    transfer::send_files_to_receiver(&service, &photographer_name, &files, is_cancelled, window).await
 }
 
 fn get_media_extensions_list() -> Vec<&'static str> {
@@ -286,6 +293,7 @@ async fn check_duplicates_before_send(
 
 #[tauri::command]
 async fn send_files_with_selection(
+    state: State<'_, AppState>,
     target_host: String,
     target_port: u16,
     photographer_name: String,
@@ -317,15 +325,24 @@ async fn send_files_with_selection(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    // Trimite fișierele selectate (checksum se calculează în transfer)
+    // Reset flag și trimite fișierele selectate
+    state.is_transfer_cancelled.store(false, Ordering::Relaxed);
+    let is_cancelled = Arc::clone(&state.is_transfer_cancelled);
     transfer::send_files_with_selection(
         &service,
         &photographer_name,
         &files,
         Some(files_to_send),
+        is_cancelled,
         window,
     )
     .await
+}
+
+#[tauri::command]
+async fn cancel_transfer(state: State<'_, AppState>) -> Result<(), String> {
+    state.is_transfer_cancelled.store(true, Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]
@@ -393,6 +410,7 @@ pub fn run() {
     let app_state = AppState {
         discovery: Arc::new(Mutex::new(discovery)),
         discovered_services,
+        is_transfer_cancelled: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -411,6 +429,7 @@ pub fn run() {
             get_receiver_info,
             check_duplicates_before_send,
             send_files_with_selection,
+            cancel_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

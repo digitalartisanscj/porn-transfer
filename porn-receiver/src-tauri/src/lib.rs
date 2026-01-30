@@ -6,6 +6,7 @@ mod transfer;
 use config::{ReceiverConfig, TransferRecord};
 use discovery::{DiscoveredService, ServiceDiscovery};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -16,6 +17,7 @@ pub struct AppState {
     pub is_running: Arc<Mutex<bool>>,
     pub history: Arc<Mutex<Vec<TransferRecord>>>,
     pub discovery: Arc<Mutex<Option<ServiceDiscovery>>>,
+    pub is_transfer_cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,9 +68,13 @@ async fn start_server(
     let is_running = Arc::clone(&state.is_running);
     let config_state = Arc::clone(&state.config);
     let history = Arc::clone(&state.history);
+    let is_cancelled = Arc::clone(&state.is_transfer_cancelled);
+
+    // Reset flag la pornirea serverului
+    is_cancelled.store(false, Ordering::Relaxed);
 
     std::thread::spawn(move || {
-        if let Err(e) = server::run_server(PORT, config, config_state, history, is_running, window) {
+        if let Err(e) = server::run_server(PORT, config, config_state, history, is_running, is_cancelled, window) {
             eprintln!("Server error: {}", e);
         }
     });
@@ -236,6 +242,12 @@ async fn get_temp_folders(state: State<'_, AppState>) -> Result<Vec<server::Temp
 }
 
 #[tauri::command]
+async fn cancel_current_transfer(state: State<'_, AppState>) -> Result<(), String> {
+    state.is_transfer_cancelled.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
 async fn delete_temp_folder(path: String) -> Result<(), String> {
     let folder_path = std::path::Path::new(&path);
     if folder_path.exists() && folder_path.is_dir() {
@@ -261,6 +273,7 @@ pub fn run() {
         is_running: Arc::new(Mutex::new(false)),
         history: Arc::new(Mutex::new(history)),
         discovery: Arc::new(Mutex::new(None)),
+        is_transfer_cancelled: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -282,6 +295,7 @@ pub fn run() {
             send_to_editor,
             get_temp_folders,
             delete_temp_folder,
+            cancel_current_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

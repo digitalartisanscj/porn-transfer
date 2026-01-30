@@ -2,6 +2,8 @@ use crate::{DiscoveredService, FileInfo, TransferProgress};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
@@ -142,9 +144,10 @@ pub async fn send_files_to_receiver(
     service: &DiscoveredService,
     photographer_name: &str,
     files: &[FileInfo],
+    is_cancelled: Arc<AtomicBool>,
     window: tauri::Window,
 ) -> Result<(), String> {
-    send_files_with_selection(service, photographer_name, files, None, window).await
+    send_files_with_selection(service, photographer_name, files, None, is_cancelled, window).await
 }
 
 /// Trimite fișierele selectate - FĂRĂ checksum (transfer direct, rapid)
@@ -153,6 +156,7 @@ pub async fn send_files_with_selection(
     photographer_name: &str,
     files: &[FileInfo],
     files_to_send: Option<Vec<String>>,
+    is_cancelled: Arc<AtomicBool>,
     window: tauri::Window,
 ) -> Result<(), String> {
     // Determină ce fișiere să trimită
@@ -251,6 +255,12 @@ pub async fn send_files_with_selection(
     let start_time = Instant::now();
 
     for (index, file) in files_filtered.iter().enumerate() {
+        // Verifică dacă transferul a fost anulat
+        if is_cancelled.load(Ordering::Relaxed) {
+            let _ = window.emit("transfer-cancelled", ());
+            return Err("Transfer anulat de utilizator".to_string());
+        }
+
         let mut file_handle =
             std::fs::File::open(&file.path).map_err(|e| format!("Nu pot deschide {}: {}", file.name, e))?;
 
@@ -272,6 +282,12 @@ pub async fn send_files_with_selection(
 
             file_sent += bytes_read as u64;
             total_sent += bytes_read as u64;
+
+            // Verifică dacă transferul a fost anulat după fiecare chunk
+            if is_cancelled.load(Ordering::Relaxed) {
+                let _ = window.emit("transfer-cancelled", ());
+                return Err("Transfer anulat de utilizator".to_string());
+            }
 
             // Calculează viteza
             let elapsed = start_time.elapsed().as_secs_f64();

@@ -273,9 +273,22 @@ async function setupTauriListeners() {
     enableDropZones();
   });
 
+  // Transfer cancelled (from backend)
+  await listen("transfer-cancelled", () => {
+    isTransferring = false;
+    progressSection.classList.remove("active");
+    showToast("Transfer anulat", "error");
+    enableDropZones();
+  });
+
   // Cancel button
-  btnCancel.addEventListener("click", () => {
+  btnCancel.addEventListener("click", async () => {
     if (isTransferring || progressSection.classList.contains("active")) {
+      try {
+        await invoke("cancel_transfer");
+      } catch (e) {
+        console.error("Error cancelling transfer:", e);
+      }
       isTransferring = false;
       progressSection.classList.remove("active");
       showToast("Transfer anulat", "error");

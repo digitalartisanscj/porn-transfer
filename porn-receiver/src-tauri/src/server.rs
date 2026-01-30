@@ -267,6 +267,7 @@ pub fn run_server(
     config_state: Arc<Mutex<ReceiverConfig>>,
     history: Arc<Mutex<Vec<TransferRecord>>>,
     is_running: Arc<Mutex<bool>>,
+    is_cancelled: Arc<std::sync::atomic::AtomicBool>,
     window: tauri::Window,
 ) -> Result<(), String> {
     // Start mDNS registration
@@ -323,11 +324,15 @@ pub fn run_server(
                     c.clone()
                 };
 
+                // Reset flag la începutul fiecărui transfer
+                is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
+
                 if let Err(e) = handle_connection(
                     stream,
                     config,
                     &config_state,
                     &history,
+                    &is_cancelled,
                     &window,
                 ) {
                     eprintln!("Transfer error: {}", e);
@@ -356,6 +361,7 @@ fn handle_connection(
     config: ReceiverConfig,
     config_state: &Arc<Mutex<ReceiverConfig>>,
     history: &Arc<Mutex<Vec<TransferRecord>>>,
+    is_cancelled: &Arc<std::sync::atomic::AtomicBool>,
     window: &tauri::Window,
 ) -> Result<(), String> {
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
@@ -593,6 +599,13 @@ fn handle_connection(
     };
 
     for (index, file_meta) in files_to_receive.iter().enumerate() {
+        // Verifică dacă transferul a fost anulat
+        if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            let record = save_to_history(history, TransferStatus::Partial);
+            let _ = window.emit("transfer-cancelled", &record);
+            return Err("Transfer anulat de utilizator".to_string());
+        }
+
         let file_path = full_path.join(&file_meta.name);
         let mut file = match std::fs::File::create(&file_path) {
             Ok(f) => f,
@@ -634,6 +647,13 @@ fn handle_connection(
 
             file_received += bytes_read as u64;
             total_received += bytes_read as u64;
+
+            // Verifică dacă transferul a fost anulat după fiecare chunk
+            if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                let record = save_to_history(history, TransferStatus::Partial);
+                let _ = window.emit("transfer-cancelled", &record);
+                return Err("Transfer anulat de utilizator".to_string());
+            }
 
             // Calculate speed
             let elapsed = start_time.elapsed().as_secs_f64();

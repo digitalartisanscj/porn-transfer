@@ -344,6 +344,14 @@ async function setupTauriListeners() {
     loadHistory();
   });
 
+  await listen<TransferRecord>("transfer-cancelled", (event) => {
+    const record = event.payload;
+    activeTransfers.clear();
+    updateTransfersUI();
+    showToast(`Transfer anulat: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
+    loadHistory();
+  });
+
   // Send listeners
   await setupSendListeners();
 }
@@ -465,10 +473,15 @@ function updateTransfersUI() {
 
     // Add cancel button listener
     const cancelBtn = item.querySelector('.btn-cancel-transfer')!;
-    cancelBtn.addEventListener('click', () => {
-      activeTransfers.delete(photographer);
-      updateTransfersUI();
-      showToast(`Transfer de la ${photographer} anulat`, "error");
+    cancelBtn.addEventListener('click', async () => {
+      try {
+        await invoke("cancel_current_transfer");
+        activeTransfers.delete(photographer);
+        updateTransfersUI();
+        showToast(`Transfer de la ${photographer} anulat`, "error");
+      } catch (e) {
+        console.error("Error cancelling transfer:", e);
+      }
     });
 
     list.appendChild(item);
@@ -689,9 +702,14 @@ function handleDayResetClick(day: string) {
   if (resetClickCount === 3) {
     // Triple-click detectat - arată confirmare
     resetClickCount = 0;
-    if (confirm(`Ești sigur că vrei să ștergi istoricul pentru ${day}?\n\nAceastă acțiune nu poate fi anulată!`)) {
-      clearDayHistory(day);
-    }
+    const dayToReset = day; // Captură valoarea
+
+    // setTimeout pentru a permite UI-ului să se stabilizeze
+    setTimeout(() => {
+      if (confirm(`Ești sigur că vrei să ștergi istoricul pentru ${dayToReset}?\n\nAceastă acțiune nu poate fi anulată!`)) {
+        clearDayHistory(dayToReset);
+      }
+    }, 100);
   } else {
     // Reset counter după 500ms
     resetClickTimer = setTimeout(() => {
