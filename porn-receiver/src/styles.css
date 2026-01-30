@@ -319,6 +319,37 @@ body {
   color: var(--text-muted);
 }
 
+.transfer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.transfer-file {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-cancel-transfer {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel-transfer:hover {
+  background: var(--error);
+  color: #fff;
+}
+
 .progress-bar {
   height: 4px;
   background: var(--border);

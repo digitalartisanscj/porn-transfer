@@ -33,6 +33,12 @@ interface DuplicateCheckResult {
   target_folder: string;
 }
 
+interface ChecksumProgress {
+  current: number;
+  total: number;
+  file_name: string;
+}
+
 // State - now stores all services, keyed by unique identifier (name+host)
 let allServices: DiscoveredService[] = [];
 let pendingFiles: string[] = [];
@@ -57,6 +63,7 @@ let progressTitle: HTMLElement;
 let progressStats: HTMLElement;
 let progressFile: HTMLElement;
 let progressSpeed: HTMLElement;
+let btnCancel: HTMLElement;
 let toast: HTMLElement;
 let toastMessage: HTMLElement;
 
@@ -86,6 +93,7 @@ function initElements() {
   progressStats = document.getElementById("progress-stats")!;
   progressFile = document.getElementById("progress-file")!;
   progressSpeed = document.getElementById("progress-speed")!;
+  btnCancel = document.getElementById("btn-cancel-transfer")!;
   toast = document.getElementById("toast")!;
   toastMessage = document.getElementById("toast-message")!;
 }
@@ -229,6 +237,22 @@ async function setupTauriDragDrop() {
 }
 
 async function setupTauriListeners() {
+  // Checksum calculation progress
+  await listen<ChecksumProgress>("checksum-progress", (event) => {
+    const p = event.payload;
+    const percent = (p.current / p.total) * 100;
+    progressBar.style.width = `${percent}%`;
+    progressStats.textContent = `${p.current} / ${p.total}`;
+    progressFile.textContent = p.file_name;
+    progressSpeed.textContent = "";
+  });
+
+  // Checksums were cached - skip calculation display
+  await listen<number>("checksums-cached", (event) => {
+    progressTitle.textContent = "Se conectează...";
+    progressFile.textContent = `Se folosesc ${event.payload} checksums din cache`;
+  });
+
   // Transfer progress
   await listen<TransferProgress>("transfer-progress", (event) => {
     const p = event.payload;
@@ -246,6 +270,16 @@ async function setupTauriListeners() {
     progressSection.classList.remove("active");
     showToast(`Transfer complet: ${event.payload} fișiere`, "success");
     enableDropZones();
+  });
+
+  // Cancel button
+  btnCancel.addEventListener("click", () => {
+    if (isTransferring || progressSection.classList.contains("active")) {
+      isTransferring = false;
+      progressSection.classList.remove("active");
+      showToast("Transfer anulat", "error");
+      enableDropZones();
+    }
   });
 }
 
@@ -441,8 +475,9 @@ async function sendFilesToReceiver(receiver: DiscoveredService, paths: string[])
       return;
     }
 
-    // Update status
-    progressFile.textContent = `${expandedPaths.length} fișiere găsite. Se verifică duplicate...`;
+    // Update status for checksum progress
+    progressTitle.textContent = "Se calculează checksums...";
+    progressFile.textContent = `${expandedPaths.length} fișiere găsite.`;
 
     // Now check for duplicates with expanded paths
     const result = await invoke<DuplicateCheckResult>("check_duplicates_before_send", {
@@ -450,6 +485,7 @@ async function sendFilesToReceiver(receiver: DiscoveredService, paths: string[])
       targetPort: receiver.port,
       photographerName: name,
       filePaths: expandedPaths,
+      window: null, // Tauri will use current window
     });
 
     progressSection.classList.remove("active");

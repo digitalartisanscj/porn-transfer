@@ -121,7 +121,7 @@ async fn send_files_to_host(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    // Trimite fișierele
+    // Trimite fișierele (checksum se calculează în transfer)
     transfer::send_files_to_receiver(&service, &photographer_name, &files, window).await
 }
 
@@ -254,6 +254,7 @@ async fn check_duplicates_before_send(
     target_port: u16,
     photographer_name: String,
     file_paths: Vec<String>,
+    window: tauri::Window,
 ) -> Result<transfer::DuplicateCheckResult, String> {
     let service = DiscoveredService {
         name: format!("{}:{}", target_host, target_port),
@@ -279,7 +280,8 @@ async fn check_duplicates_before_send(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    transfer::check_duplicates(&service, &photographer_name, &files)
+    // Verificare duplicate doar după nume (instant, fără checksum)
+    transfer::check_duplicates(&service, &photographer_name, &files, Some(&window))
 }
 
 #[tauri::command]
@@ -315,6 +317,7 @@ async fn send_files_with_selection(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
+    // Trimite fișierele selectate (checksum se calculează în transfer)
     transfer::send_files_with_selection(
         &service,
         &photographer_name,

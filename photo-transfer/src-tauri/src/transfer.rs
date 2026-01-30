@@ -1,11 +1,16 @@
 use crate::{DiscoveredService, FileInfo, TransferProgress};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::Emitter;
 
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunks pentru viteză mai mare
+const MD5_BUFFER_SIZE: usize = 1024 * 1024; // 1 MB buffer pentru MD5
 
 #[derive(Serialize, Deserialize)]
 struct TransferHeader {
@@ -48,11 +53,20 @@ pub struct DuplicateCheckResult {
     pub target_folder: String,
 }
 
-/// Verifică duplicatele înainte de transfer - returnează lista de duplicate
+#[derive(Clone, Serialize)]
+struct ChecksumProgress {
+    current: usize,
+    total: usize,
+    file_name: String,
+}
+
+/// Verifică duplicatele înainte de transfer - FĂRĂ checksum (instant)
+/// Receiver verifică doar după nume în folderul zilei curente
 pub fn check_duplicates(
     service: &DiscoveredService,
     photographer_name: &str,
     files: &[FileInfo],
+    _window: Option<&tauri::Window>, // Nu mai folosim pentru progres checksum
 ) -> Result<DuplicateCheckResult, String> {
     // Conectare la receiver
     let addr = format!("{}:{}", service.host, service.port);
@@ -63,16 +77,13 @@ pub fn check_duplicates(
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
 
-    // Calculează checksum-urile
+    // Construiește metadata FĂRĂ checksum (doar nume și dimensiune)
     let file_metadata: Vec<FileMetadata> = files
         .iter()
-        .map(|f| {
-            let checksum = calculate_md5(&f.path).unwrap_or_default();
-            FileMetadata {
-                name: f.name.clone(),
-                size: f.size,
-                checksum,
-            }
+        .map(|f| FileMetadata {
+            name: f.name.clone(),
+            size: f.size,
+            checksum: String::new(), // Nu calculăm checksum pentru verificare duplicate
         })
         .collect();
 
@@ -143,6 +154,7 @@ pub async fn send_files_to_receiver(
 }
 
 /// Trimite fișierele selectate (după ce utilizatorul a decis ce să facă cu duplicatele)
+/// Calculează checksum-uri pentru verificarea integrității în timpul transferului
 pub async fn send_files_with_selection(
     service: &DiscoveredService,
     photographer_name: &str,
@@ -150,6 +162,22 @@ pub async fn send_files_with_selection(
     files_to_send: Option<Vec<String>>, // None = toate, Some = doar cele specificate
     window: tauri::Window,
 ) -> Result<(), String> {
+    // Determină ce fișiere să trimită
+    let files_filtered: Vec<&FileInfo> = if let Some(ref selected) = files_to_send {
+        files.iter().filter(|f| selected.contains(&f.name)).collect()
+    } else {
+        files.iter().collect()
+    };
+
+    if files_filtered.is_empty() {
+        let _ = window.emit("transfer-complete", 0);
+        return Ok(());
+    }
+
+    // Calculează checksum-urile în paralel DOAR pentru fișierele de trimis
+    let _ = window.emit("checksum-start", files_filtered.len());
+    let checksums = calculate_checksums_parallel(&files_filtered, Some(&window));
+
     // Conectare la receiver
     let addr = format!("{}:{}", service.host, service.port);
     let mut stream = TcpStream::connect(&addr)
@@ -159,16 +187,13 @@ pub async fn send_files_with_selection(
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
 
-    // Calculează checksum-urile
-    let file_metadata: Vec<FileMetadata> = files
+    // Construiește metadata cu checksum-urile calculate
+    let file_metadata: Vec<FileMetadata> = files_filtered
         .iter()
-        .map(|f| {
-            let checksum = calculate_md5(&f.path).unwrap_or_default();
-            FileMetadata {
-                name: f.name.clone(),
-                size: f.size,
-                checksum,
-            }
+        .map(|f| FileMetadata {
+            name: f.name.clone(),
+            size: f.size,
+            checksum: checksums.get(&f.name).cloned().unwrap_or_default(),
         })
         .collect();
 
@@ -212,19 +237,9 @@ pub async fn send_files_with_selection(
         return Err(format!("Receiver nu e gata: {}", ack.status));
     }
 
-    // Determină ce fișiere să trimită
-    let selected_files: Vec<String> = if let Some(selected) = files_to_send {
-        selected
-    } else if ack.duplicates.is_empty() {
-        // Fără duplicate - trimite toate
-        files.iter().map(|f| f.name.clone()).collect()
-    } else {
-        // Toate fișierele (dacă nu s-a specificat explicit)
-        files.iter().map(|f| f.name.clone()).collect()
-    };
-
-    // Trimite lista de fișiere de transferat
-    let decision_json = serde_json::to_string(&selected_files).map_err(|e| e.to_string())?;
+    // Trimite lista de fișiere de transferat (toate din files_filtered)
+    let selected_names: Vec<String> = files_filtered.iter().map(|f| f.name.clone()).collect();
+    let decision_json = serde_json::to_string(&selected_names).map_err(|e| e.to_string())?;
     let decision_bytes = decision_json.as_bytes();
 
     stream
@@ -233,17 +248,6 @@ pub async fn send_files_with_selection(
     stream
         .write_all(decision_bytes)
         .map_err(|e| format!("Eroare trimitere decizie: {}", e))?;
-
-    // Filtrează fișierele de trimis
-    let files_filtered: Vec<&FileInfo> = files
-        .iter()
-        .filter(|f| selected_files.contains(&f.name))
-        .collect();
-
-    if files_filtered.is_empty() {
-        let _ = window.emit("transfer-complete", 0);
-        return Ok(());
-    }
 
     let total_bytes: u64 = files_filtered.iter().map(|f| f.size).sum();
 
@@ -313,10 +317,43 @@ pub async fn send_files_with_selection(
     Ok(())
 }
 
-fn calculate_md5(path: &str) -> Result<String, std::io::Error> {
+/// Calculează checksum-urile în paralel cu progres
+fn calculate_checksums_parallel(
+    files: &[&FileInfo],
+    window: Option<&tauri::Window>,
+) -> HashMap<String, String> {
+    let total = files.len();
+    let counter = Arc::new(AtomicUsize::new(0));
+
+    // Calculează în paralel folosind rayon
+    let results: Vec<(String, String)> = files
+        .par_iter()
+        .map(|f| {
+            let checksum = calculate_md5_fast(&f.path).unwrap_or_default();
+
+            // Incrementează contorul și emite progres
+            let current = counter.fetch_add(1, Ordering::SeqCst) + 1;
+
+            if let Some(win) = window {
+                let progress = ChecksumProgress {
+                    current,
+                    total,
+                    file_name: f.name.clone(),
+                };
+                let _ = win.emit("checksum-progress", &progress);
+            }
+
+            (f.name.clone(), checksum)
+        })
+        .collect();
+
+    results.into_iter().collect()
+}
+
+fn calculate_md5_fast(path: &str) -> Result<String, std::io::Error> {
     let mut file = std::fs::File::open(path)?;
     let mut context = md5::Context::new();
-    let mut buffer = [0u8; 8192];
+    let mut buffer = vec![0u8; MD5_BUFFER_SIZE];
 
     loop {
         let bytes_read = file.read(&mut buffer)?;

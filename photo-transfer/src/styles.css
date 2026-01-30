@@ -218,6 +218,25 @@ body {
   color: var(--text-muted);
 }
 
+.btn-cancel {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 12px;
+  width: 100%;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background: var(--error);
+  color: #fff;
+}
+
 /* Hidden file input */
 input[type="file"] {
   display: none;

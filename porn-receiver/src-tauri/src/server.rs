@@ -57,21 +57,6 @@ fn get_local_ip() -> Result<String, String> {
     Ok(addr.ip().to_string())
 }
 
-// Calculează MD5 pentru un fișier existent
-fn calculate_existing_md5(path: &std::path::Path) -> Option<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut context = md5::Context::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let bytes_read = file.read(&mut buffer).ok()?;
-        if bytes_read == 0 {
-            break;
-        }
-        context.consume(&buffer[..bytes_read]);
-    }
-    Some(format!("{:x}", context.compute()))
-}
 
 // Caută un folder existent pentru acest fotograf (pentru reluare transfer)
 fn find_existing_folder(base_path: &std::path::Path, photographer: &str, day_folder: Option<&str>) -> Option<std::path::PathBuf> {
@@ -108,7 +93,7 @@ fn find_existing_folder(base_path: &std::path::Path, photographer: &str, day_fol
     }
 }
 
-// Caută duplicate în toată ziua curentă (toate folderele)
+// Caută duplicate în toată ziua curentă (toate folderele) - doar după nume
 fn find_duplicates_in_day(
     base_path: &std::path::Path,
     day_folder: Option<&str>,
@@ -140,23 +125,20 @@ fn find_duplicates_in_day(
             }
 
             if folder_path.is_dir() {
-                // Verifică fiecare fișier din transfer
+                // Verifică fiecare fișier din transfer - doar după nume
                 for file_meta in files {
                     let potential_duplicate = folder_path.join(&file_meta.name);
                     if potential_duplicate.exists() {
                         if let Ok(metadata) = std::fs::metadata(&potential_duplicate) {
-                            let existing_checksum = calculate_existing_md5(&potential_duplicate);
-                            let same_checksum = existing_checksum
-                                .as_ref()
-                                .map(|c| c == &file_meta.checksum)
-                                .unwrap_or(false);
+                            // Verificare doar după nume - same_checksum = true dacă dimensiunea e aceeași
+                            let same_size = metadata.len() == file_meta.size;
 
                             duplicates.push(DuplicateInfo {
                                 file_name: file_meta.name.clone(),
                                 existing_path: folder_path.to_string_lossy().to_string(),
                                 existing_size: metadata.len(),
                                 new_size: file_meta.size,
-                                same_checksum,
+                                same_checksum: same_size, // Folosim dimensiunea ca aproximare
                             });
                         }
                     }
@@ -168,35 +150,34 @@ fn find_duplicates_in_day(
     duplicates
 }
 
-// Verifică duplicate în folderul curent de transfer
+// Verifică duplicate în folderul curent de transfer - doar după nume (instant)
 fn check_duplicates_in_folder(
     folder_path: &std::path::Path,
     files: &[FileMetadata],
 ) -> Vec<DuplicateInfo> {
-    let mut duplicates = Vec::new();
+    let folder_path_str = folder_path.to_string_lossy().to_string();
 
-    for file_meta in files {
-        let file_path = folder_path.join(&file_meta.name);
-        if file_path.exists() {
-            if let Ok(metadata) = std::fs::metadata(&file_path) {
-                let existing_checksum = calculate_existing_md5(&file_path);
-                let same_checksum = existing_checksum
-                    .as_ref()
-                    .map(|c| c == &file_meta.checksum)
-                    .unwrap_or(false);
+    files
+        .iter()
+        .filter_map(|file_meta| {
+            let file_path = std::path::Path::new(&folder_path_str).join(&file_meta.name);
+            if file_path.exists() {
+                if let Ok(metadata) = std::fs::metadata(&file_path) {
+                    // Verificare doar după nume - same_checksum = true dacă dimensiunea e aceeași
+                    let same_size = metadata.len() == file_meta.size;
 
-                duplicates.push(DuplicateInfo {
-                    file_name: file_meta.name.clone(),
-                    existing_path: folder_path.to_string_lossy().to_string(),
-                    existing_size: metadata.len(),
-                    new_size: file_meta.size,
-                    same_checksum,
-                });
+                    return Some(DuplicateInfo {
+                        file_name: file_meta.name.clone(),
+                        existing_path: folder_path_str.clone(),
+                        existing_size: metadata.len(),
+                        new_size: file_meta.size,
+                        same_checksum: same_size,
+                    });
+                }
             }
-        }
-    }
-
-    duplicates
+            None
+        })
+        .collect()
 }
 
 pub fn run_server(

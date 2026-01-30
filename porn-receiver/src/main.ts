@@ -427,7 +427,7 @@ function updateTransfersUI() {
   empty.style.display = "none";
   list.innerHTML = "";
 
-  activeTransfers.forEach((p) => {
+  activeTransfers.forEach((p, photographer) => {
     const percent = (p.bytes_received / p.total_bytes) * 100;
     const item = document.createElement("div");
     item.className = "transfer-item";
@@ -439,8 +439,20 @@ function updateTransfersUI() {
       <div class="progress-bar">
         <div class="progress-bar-fill" style="width: ${percent}%"></div>
       </div>
-      <div class="transfer-stats">${p.file_name}</div>
+      <div class="transfer-footer">
+        <span class="transfer-file">${p.file_name}</span>
+        <button class="btn-cancel-transfer" data-photographer="${photographer}">Anuleaza</button>
+      </div>
     `;
+
+    // Add cancel button listener
+    const cancelBtn = item.querySelector('.btn-cancel-transfer')!;
+    cancelBtn.addEventListener('click', () => {
+      activeTransfers.delete(photographer);
+      updateTransfersUI();
+      showToast(`Transfer de la ${photographer} anulat`, "error");
+    });
+
     list.appendChild(item);
   });
 }
