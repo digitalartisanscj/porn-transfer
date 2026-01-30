@@ -65,16 +65,13 @@ pub async fn send_files_to_editor(
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
 
-    // Calculează checksum-urile
+    // Construiește metadata FĂRĂ checksum
     let file_metadata: Vec<FileMetadata> = files
         .iter()
-        .map(|f| {
-            let checksum = calculate_md5(&f.path).unwrap_or_default();
-            FileMetadata {
-                name: f.name.clone(),
-                size: f.size,
-                checksum,
-            }
+        .map(|f| FileMetadata {
+            name: f.name.clone(),
+            size: f.size,
+            checksum: String::new(), // Fără checksum
         })
         .collect();
 
@@ -170,7 +167,7 @@ pub async fn send_files_to_editor(
             let _ = window.emit("send-progress", &progress);
         }
 
-        // Așteaptă confirmare pentru fișier
+        // Așteaptă confirmare pentru fișier (fără checksum)
         let mut response = [0u8; 32];
         let n = stream
             .read(&mut response)
@@ -189,22 +186,6 @@ pub async fn send_files_to_editor(
     let _ = window.emit("send-complete", files.len());
 
     Ok(())
-}
-
-fn calculate_md5(path: &str) -> Result<String, std::io::Error> {
-    let mut file = std::fs::File::open(path)?;
-    let mut context = md5::Context::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        context.consume(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", context.compute()))
 }
 
 pub fn prepare_files(paths: &[String]) -> Vec<FileInfo> {
