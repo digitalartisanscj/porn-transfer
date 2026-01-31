@@ -36,9 +36,9 @@ jobs:
       - name: Sign NSIS installer
         working-directory: porn-receiver
         run: |
-          $exe = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
-          echo "Signing $($exe.FullName)"
-          npx tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "" "$($exe.FullName)"
+          $exe = (Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1).FullName
+          echo "Signing $exe"
+          npx tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "" $exe
           Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/"
         shell: pwsh
 
