@@ -1053,3 +1053,28 @@ body {
 .btn-temp-close:hover {
   border-color: var(--orange);
 }
+
+/* Update Info */
+.update-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.update-info span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#update-status {
+  margin-top: 8px;
+}
+
+#update-status.success {
+  color: var(--success);
+}
+
+#update-status.error {
+  color: var(--error);
+}

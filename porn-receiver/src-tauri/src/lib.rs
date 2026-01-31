@@ -42,7 +42,17 @@ async fn get_config(state: State<'_, AppState>) -> Result<ReceiverConfig, String
 #[tauri::command]
 async fn save_config(state: State<'_, AppState>, config: ReceiverConfig) -> Result<(), String> {
     let mut current = state.config.lock().map_err(|e| e.to_string())?;
-    *current = config.clone();
+
+    // Păstrează counter-urile existente (frontend nu le trimite)
+    let day_counters = current.day_counters.clone();
+    let folder_counter = current.folder_counter;
+
+    *current = config;
+
+    // Restaurează counter-urile
+    current.day_counters = day_counters;
+    current.folder_counter = folder_counter;
+
     current.save()?;
     Ok(())
 }
@@ -310,6 +320,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             get_config,

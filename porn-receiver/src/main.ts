@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 interface ReceiverConfig {
   role: string;
@@ -91,6 +93,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   await loadConfig();
   await showLocalIP();
   await checkTempFolders(); // Verifică foldere temporare la pornire
+  checkForUpdatesOnStartup(); // Verifică actualizări în background
 });
 
 function initElements() {
@@ -325,6 +328,10 @@ function setupEventListeners() {
     document.getElementById("editor-select-modal")!.style.display = "none";
     pendingFiles = [];
   });
+
+  // Check for updates button
+  const btnCheckUpdate = document.getElementById("btn-check-update")!;
+  btnCheckUpdate.addEventListener("click", checkForUpdates);
 }
 
 async function setupTauriListeners() {
@@ -1092,4 +1099,69 @@ async function setupSendListeners() {
     sendProgress.style.display = "none";
     showToast(`Transfer complet: ${event.payload} fisiere trimise`, "success");
   });
+}
+
+// ==================== AUTO-UPDATE ====================
+
+async function checkForUpdates() {
+  const updateStatus = document.getElementById("update-status")!;
+  const btnCheckUpdate = document.getElementById("btn-check-update")!;
+
+  try {
+    btnCheckUpdate.textContent = "Se verifică...";
+    btnCheckUpdate.setAttribute("disabled", "true");
+    updateStatus.textContent = "";
+    updateStatus.className = "hint";
+
+    const update = await check();
+
+    if (update) {
+      updateStatus.textContent = `Versiune nouă disponibilă: ${update.version}`;
+      updateStatus.className = "hint success";
+
+      if (confirm(`Este disponibilă versiunea ${update.version}. Vrei să actualizezi acum?`)) {
+        updateStatus.textContent = "Se descarcă actualizarea...";
+
+        let totalSize = 0;
+        let downloaded = 0;
+        await update.downloadAndInstall((progress) => {
+          if (progress.event === "Started") {
+            totalSize = (progress.data as any).contentLength || 0;
+            updateStatus.textContent = `Se descarcă... 0%`;
+          } else if (progress.event === "Progress") {
+            downloaded += (progress.data as any).chunkLength || 0;
+            const percent = totalSize > 0 ? Math.round((downloaded / totalSize) * 100) : 0;
+            updateStatus.textContent = `Se descarcă... ${percent}%`;
+          } else if (progress.event === "Finished") {
+            updateStatus.textContent = "Se instalează...";
+          }
+        });
+
+        updateStatus.textContent = "Actualizare completă! Se repornește...";
+        await relaunch();
+      }
+    } else {
+      updateStatus.textContent = "Ai ultima versiune instalată.";
+      updateStatus.className = "hint success";
+    }
+  } catch (e) {
+    console.error("Update check error:", e);
+    updateStatus.textContent = `Eroare verificare: ${e}`;
+    updateStatus.className = "hint error";
+  } finally {
+    btnCheckUpdate.textContent = "Verifică actualizări";
+    btnCheckUpdate.removeAttribute("disabled");
+  }
+}
+
+// Check for updates on startup (silent)
+async function checkForUpdatesOnStartup() {
+  try {
+    const update = await check();
+    if (update) {
+      showToast(`Actualizare disponibilă: v${update.version}`, "success");
+    }
+  } catch (e) {
+    console.error("Startup update check failed:", e);
+  }
 }

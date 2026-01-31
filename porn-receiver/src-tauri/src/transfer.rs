@@ -153,8 +153,26 @@ pub async fn send_files_to_editor(
     let start_time = Instant::now();
 
     for (index, file) in files.iter().enumerate() {
+        println!("Încerc să deschid fișierul: {}", file.path);
+
+        // Verifică dacă fișierul există
+        let path = std::path::Path::new(&file.path);
+        if !path.exists() {
+            return Err(format!("Fișierul nu există: {}", file.path));
+        }
+
+        // Verifică metadatele
+        match std::fs::metadata(&file.path) {
+            Ok(meta) => {
+                println!("Metadata: readonly={}, len={}", meta.permissions().readonly(), meta.len());
+            }
+            Err(e) => {
+                println!("Nu pot citi metadata: {}", e);
+            }
+        }
+
         let mut file_handle = open_file_for_read(&file.path)
-            .map_err(|e| format!("Nu pot deschide {}: {}", file.name, e))?;
+            .map_err(|e| format!("Nu pot deschide {}: {} (path: {})", file.name, e, file.path))?;
 
         let mut buffer = vec![0u8; CHUNK_SIZE];
         let mut file_sent: u64 = 0;
