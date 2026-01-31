@@ -669,20 +669,14 @@ function setupDuplicateModal() {
   btnSendAll.addEventListener("click", async () => {
     if (!pendingDuplicateCheck) return;
 
-    // Colectează TOATE fișierele, nu doar cele bifate
-    const allNames: string[] = [];
-    const checkboxes = document.querySelectorAll("#duplicate-list input[type=checkbox]") as NodeListOf<HTMLInputElement>;
-    checkboxes.forEach(cb => {
-      if (cb.dataset.fileName) allNames.push(cb.dataset.fileName);
-    });
-
     modal.style.display = "none";
 
     const { receiver, paths } = pendingDuplicateCheck;
     const name = photographerNameInput.value.trim();
     pendingDuplicateCheck = null;
 
-    await startTransferWithSelection(receiver, paths, name, allNames);
+    // Trimite fără filtrare - folosim startTransfer normal care trimite TOATE
+    await startTransfer(receiver, paths, name);
   });
 }
 

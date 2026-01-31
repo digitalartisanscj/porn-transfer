@@ -74,7 +74,22 @@ jobs:
 
       - name: Build Tauri (photo-transfer)
         working-directory: photo-transfer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
+
+      - name: Sign Sender NSIS installer
+        working-directory: photo-transfer
+        shell: bash
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          exe=$(find src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
+          echo "Signing $exe"
+          npx tauri signer sign "$exe"
+          ls -la src-tauri/target/release/bundle/nsis/
 
       - name: Upload Sender Windows artifact
         uses: actions/upload-artifact@v4
@@ -83,3 +98,4 @@ jobs:
           path: |
             photo-transfer/src-tauri/target/release/bundle/msi/*.msi
             photo-transfer/src-tauri/target/release/bundle/nsis/*.exe
+            photo-transfer/src-tauri/target/release/bundle/nsis/*.exe.sig
