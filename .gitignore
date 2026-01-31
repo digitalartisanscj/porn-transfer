@@ -20,3 +20,4 @@ Thumbs.db
 src-tauri/target/
 builds/
 release-v*/
+release-new/
