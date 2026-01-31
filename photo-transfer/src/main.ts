@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 interface DiscoveredService {
   name: string;
@@ -77,7 +79,43 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupDuplicateModal();
   startServiceDiscovery();
   updateDropZonesState();
+
+  // Check for updates
+  checkForUpdates();
 });
+
+async function checkForUpdates() {
+  try {
+    const update = await check();
+    if (update) {
+      const shouldUpdate = confirm(
+        `O nouă versiune (${update.version}) este disponibilă!\n\n` +
+        `Versiune curentă: ${update.currentVersion}\n` +
+        `Versiune nouă: ${update.version}\n\n` +
+        `Vrei să actualizezi acum?`
+      );
+
+      if (shouldUpdate) {
+        showToast("Se descarcă actualizarea...", "success");
+
+        await update.downloadAndInstall((progress) => {
+          if (progress.event === "Started" && progress.data.contentLength) {
+            console.log(`Download started, size: ${progress.data.contentLength}`);
+          } else if (progress.event === "Progress") {
+            console.log(`Downloaded ${progress.data.chunkLength} bytes`);
+          } else if (progress.event === "Finished") {
+            console.log("Download finished");
+          }
+        });
+
+        showToast("Actualizare completă! Se repornește...", "success");
+        await relaunch();
+      }
+    }
+  } catch (e) {
+    console.error("Update check failed:", e);
+  }
+}
 
 function initElements() {
   photographerNameInput = document.getElementById("photographer-name") as HTMLInputElement;
