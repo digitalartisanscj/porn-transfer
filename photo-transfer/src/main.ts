@@ -605,6 +605,7 @@ function setupDuplicateModal() {
   const btnSelectAll = document.getElementById("dup-select-all")!;
   const btnDeselectAll = document.getElementById("dup-deselect-all")!;
   const btnSelectNew = document.getElementById("dup-select-new")!;
+  const btnSendAll = document.getElementById("dup-send-all")!;
 
   btnCancel.addEventListener("click", () => {
     modal.style.display = "none";
@@ -662,6 +663,26 @@ function setupDuplicateModal() {
     pendingDuplicateCheck = null;
 
     await startTransferWithSelection(receiver, paths, name, selectedNames);
+  });
+
+  // Buton "Trimite TOATE" - trimite toate fișierele, inclusiv duplicate
+  btnSendAll.addEventListener("click", async () => {
+    if (!pendingDuplicateCheck) return;
+
+    // Colectează TOATE fișierele, nu doar cele bifate
+    const allNames: string[] = [];
+    const checkboxes = document.querySelectorAll("#duplicate-list input[type=checkbox]") as NodeListOf<HTMLInputElement>;
+    checkboxes.forEach(cb => {
+      if (cb.dataset.fileName) allNames.push(cb.dataset.fileName);
+    });
+
+    modal.style.display = "none";
+
+    const { receiver, paths } = pendingDuplicateCheck;
+    const name = photographerNameInput.value.trim();
+    pendingDuplicateCheck = null;
+
+    await startTransferWithSelection(receiver, paths, name, allNames);
   });
 }
 

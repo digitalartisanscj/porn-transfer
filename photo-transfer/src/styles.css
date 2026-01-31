@@ -402,6 +402,16 @@ input[type="file"] {
   border-color: var(--orange);
 }
 
+.modal-buttons .btn-warning {
+  background: #cc7700;
+  color: white;
+  font-weight: 600;
+}
+
+.modal-buttons .btn-warning:hover {
+  background: #ff9900;
+}
+
 /* Receiver Selection List */
 .receiver-list {
   display: flex;
