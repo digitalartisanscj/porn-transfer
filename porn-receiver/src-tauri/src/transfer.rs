@@ -76,12 +76,23 @@ pub async fn send_files_to_editor(
 ) -> Result<(), String> {
     // Conectare la editor
     let addr = format!("{}:{}", service.host, service.port);
+    println!("Conectare la editor: {}", addr);
+
     let mut stream = TcpStream::connect(&addr)
         .map_err(|e| format!("Nu m-am putut conecta la {}: {}", addr, e))?;
 
+    // Setează timeout pentru operațiuni
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+        .map_err(|e| format!("Eroare setare read timeout: {}", e))?;
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(60)))
+        .map_err(|e| format!("Eroare setare write timeout: {}", e))?;
     stream
         .set_nodelay(true)
         .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
+
+    println!("Conectat cu succes la {}", addr);
 
     // Construiește metadata FĂRĂ checksum
     let file_metadata: Vec<FileMetadata> = files
@@ -108,6 +119,7 @@ pub async fn send_files_to_editor(
     let header_bytes = header_json.as_bytes();
 
     // Trimite lungimea header-ului (4 bytes, big endian)
+    println!("Trimit header ({} bytes)...", header_bytes.len());
     stream
         .write_all(&(header_bytes.len() as u32).to_be_bytes())
         .map_err(|e| format!("Eroare trimitere lungime header: {}", e))?;
@@ -116,6 +128,9 @@ pub async fn send_files_to_editor(
     stream
         .write_all(header_bytes)
         .map_err(|e| format!("Eroare trimitere header: {}", e))?;
+    stream.flush().map_err(|e| format!("Eroare flush header: {}", e))?;
+
+    println!("Header trimis, aștept ACK...");
 
     // Așteaptă ACK
     let mut ack_len_buf = [0u8; 4];
@@ -132,11 +147,14 @@ pub async fn send_files_to_editor(
     let ack: AckResponse =
         serde_json::from_slice(&ack_buf).map_err(|e| format!("Eroare parsare ACK: {}", e))?;
 
+    println!("ACK primit: status={}", ack.status);
+
     if ack.status != "ready" {
         return Err(format!("Receiver nu e gata: {}", ack.status));
     }
 
     // Trimite lista de fișiere de transferat (serverul așteaptă această listă)
+    println!("Trimit lista de {} fișiere...", files.len());
     let files_to_send: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
     let decision_json = serde_json::to_string(&files_to_send).map_err(|e| e.to_string())?;
     let decision_bytes = decision_json.as_bytes();
@@ -237,16 +255,42 @@ pub async fn send_files_to_editor(
 }
 
 pub fn prepare_files(paths: &[String]) -> Vec<FileInfo> {
-    paths
-        .iter()
-        .filter_map(|p| {
-            let path = PathBuf::from(p);
-            let metadata = std::fs::metadata(&path).ok()?;
-            Some(FileInfo {
-                path: p.clone(),
-                name: path.file_name()?.to_string_lossy().to_string(),
-                size: metadata.len(),
-            })
-        })
-        .collect()
+    let mut files = Vec::new();
+
+    for p in paths {
+        let path = PathBuf::from(p);
+
+        if path.is_dir() {
+            // Dacă e folder, adaugă toate fișierele din el (recursiv)
+            if let Ok(entries) = std::fs::read_dir(&path) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let entry_path = entry.path();
+                    if entry_path.is_file() {
+                        if let Ok(metadata) = std::fs::metadata(&entry_path) {
+                            if let Some(name) = entry_path.file_name() {
+                                files.push(FileInfo {
+                                    path: entry_path.to_string_lossy().to_string(),
+                                    name: name.to_string_lossy().to_string(),
+                                    size: metadata.len(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        } else if path.is_file() {
+            // Dacă e fișier, adaugă-l direct
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                if let Some(name) = path.file_name() {
+                    files.push(FileInfo {
+                        path: p.clone(),
+                        name: name.to_string_lossy().to_string(),
+                        size: metadata.len(),
+                    });
+                }
+            }
+        }
+    }
+
+    files
 }
