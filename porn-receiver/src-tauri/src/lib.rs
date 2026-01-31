@@ -235,6 +235,7 @@ async fn send_to_editor(
     target_port: u16,
     target_name: String,
     file_paths: Vec<String>,
+    folder_name: Option<String>,  // Numele original al folderului (pentru receiver→receiver)
     window: tauri::Window,
 ) -> Result<(), String> {
     let config = {
@@ -255,7 +256,7 @@ async fn send_to_editor(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, window).await
+    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window).await
 }
 
 #[tauri::command]

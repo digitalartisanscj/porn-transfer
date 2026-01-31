@@ -205,7 +205,9 @@ function setupEventListeners() {
     if (!config) return;
 
     const newRole = (document.querySelector('input[name="settings-role"]:checked') as HTMLInputElement).value;
+    const newPort = parseInt((document.getElementById("settings-port") as HTMLInputElement).value, 10) || 45678;
     const roleChanged = newRole !== config.role;
+    const portChanged = newPort !== config.port;
 
     config.role = newRole;
     config.name = (document.getElementById("settings-name") as HTMLInputElement).value.trim();
@@ -213,11 +215,20 @@ function setupEventListeners() {
     config.folder_template = (document.getElementById("settings-template") as HTMLSelectElement).value;
     config.use_day_folders = (document.getElementById("settings-day-folders") as HTMLInputElement).checked;
     config.reset_numbering_daily = (document.getElementById("settings-reset-daily") as HTMLInputElement).checked;
-    config.port = parseInt((document.getElementById("settings-port") as HTMLInputElement).value, 10) || 45678;
+    config.port = newPort;
 
     try {
       await invoke("save_config", { config });
-      showToast(roleChanged ? "Setari salvate - Apasa Restart Server" : "Setari salvate", "success");
+
+      // Dacă portul sau rolul s-au schimbat, restartează serverul automat
+      if (roleChanged || portChanged) {
+        await invoke("stop_server");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await startServer();
+        showToast(`Setări salvate - Server restartat pe portul ${config.port}`, "success");
+      } else {
+        showToast("Setări salvate", "success");
+      }
       updateUIForRole();
     } catch (e) {
       showToast(`Eroare: ${e}`, "error");
@@ -1046,6 +1057,19 @@ async function sendFilesToEditor(paths: string[]) {
 
   const editor = selectedEditor;
 
+  // Extrage numele folderului dacă se trimite un folder
+  // (pentru a păstra numele original în transferuri receiver→receiver)
+  let folderName: string | null = null;
+  if (paths.length === 1) {
+    const path = paths[0];
+    // Verifică dacă e un folder (calea nu conține extensie la final)
+    const lastPart = path.split(/[/\\]/).pop() || "";
+    // Dacă ultimul segment nu are extensie de fișier comun, presupunem că e folder
+    if (lastPart && !lastPart.match(/\.(jpg|jpeg|png|gif|raw|cr2|nef|arw|dng|tif|tiff|psd|mp4|mov|avi)$/i)) {
+      folderName = lastPart;
+    }
+  }
+
   try {
     sendProgress.style.display = "block";
     document.getElementById("send-target-name")!.textContent = editor.name;
@@ -1055,6 +1079,7 @@ async function sendFilesToEditor(paths: string[]) {
       targetPort: editor.port,
       targetName: editor.name,
       filePaths: paths,
+      folderName: folderName,
     });
   } catch (e) {
     showToast(`Eroare transfer: ${e}`, "error");

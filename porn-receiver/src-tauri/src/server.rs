@@ -686,9 +686,32 @@ fn handle_connection(
         files_completed += 1;
     }
 
-    // Transfer complet! Acum redenumim folderul temporar la numele final numerotat
-    // DOAR ACUM incrementăm contorul și alocăm numărul
-    let final_folder_name = {
+    // Transfer complet! Acum redenumim folderul temporar la numele final
+    // Pentru receiver→receiver: păstrează numele original
+    // Pentru fotograf→receiver: generează nume nou cu counter
+    let final_folder_name = if header.sender_role.is_some() && header.folder_name.is_some() {
+        // Transfer receiver→receiver: păstrează numele original al folderului
+        let original_name = header.folder_name.as_ref().unwrap().clone();
+
+        // Verifică dacă folderul cu acest nume există deja, adaugă suffix dacă da
+        let mut name = original_name.clone();
+        let mut suffix = 1;
+        loop {
+            let check_path = if config.role == "editor" {
+                base_path.join(source_category).join(&name)
+            } else {
+                search_base.join(&name)
+            };
+
+            if !check_path.exists() || check_path == temp_path {
+                break;
+            }
+            suffix += 1;
+            name = format!("{}_{}", original_name, suffix);
+        }
+        name
+    } else {
+        // Transfer fotograf→receiver: generează nume nou cu counter
         let mut cfg = config_state.lock().map_err(|e| e.to_string())?;
         cfg.generate_unique_folder_name(&header.photographer, &search_base)
     };

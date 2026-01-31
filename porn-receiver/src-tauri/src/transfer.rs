@@ -72,6 +72,7 @@ pub async fn send_files_to_editor(
     sender_name: &str,
     sender_role: &str,
     files: &[FileInfo],
+    folder_name: Option<String>,  // Numele original al folderului (pentru receiver→receiver)
     window: tauri::Window,
 ) -> Result<(), String> {
     // Conectare la editor
@@ -110,8 +111,8 @@ pub async fn send_files_to_editor(
     let header = TransferHeader {
         photographer: sender_name.to_string(),
         files: file_metadata,
-        is_folder_transfer: false,
-        folder_name: None,
+        is_folder_transfer: folder_name.is_some(),
+        folder_name,  // Trimite numele original al folderului (pentru receiver→receiver)
         sender_role: Some(sender_role.to_string()),
     };
 

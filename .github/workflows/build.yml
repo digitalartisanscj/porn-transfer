@@ -3,6 +3,9 @@ name: Build
 on:
   push:
     branches: [main]
+    paths:
+      - 'porn-receiver/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 jobs:
@@ -34,32 +37,3 @@ jobs:
           path: |
             porn-receiver/src-tauri/target/release/bundle/msi/*.msi
             porn-receiver/src-tauri/target/release/bundle/nsis/*.exe
-
-  build-sender-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies (photo-transfer)
-        working-directory: photo-transfer
-        run: npm install
-
-      - name: Build Tauri (photo-transfer)
-        working-directory: photo-transfer
-        run: npm run tauri build
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: photo-transfer-windows
-          path: |
-            photo-transfer/src-tauri/target/release/bundle/msi/*.msi
-            photo-transfer/src-tauri/target/release/bundle/nsis/*.exe
