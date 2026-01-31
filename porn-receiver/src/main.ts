@@ -363,6 +363,7 @@ async function setupTauriListeners() {
     updateTransfersUI();
     showToast(`Transfer complet: ${record.file_count} fisiere de la ${record.photographer}`, "success");
     loadHistory();
+    loadDayCounter(); // Actualizează counter-ul după transfer
   });
 
   await listen<string>("transfer-error", (event) => {
