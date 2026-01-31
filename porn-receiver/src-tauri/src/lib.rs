@@ -3,7 +3,7 @@ mod discovery;
 mod server;
 mod transfer;
 
-use config::{ReceiverConfig, TransferRecord};
+use config::{ReceiverConfig, TransferRecord, SentRecord, load_sent_history, add_sent_record};
 use discovery::{DiscoveredService, ServiceDiscovery};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,6 +22,7 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferProgress {
+    pub transfer_id: String, // ID unic pentru fiecare transfer (pentru transferuri simultane)
     pub photographer: String,
     pub file_name: String,
     pub file_index: usize,
@@ -256,7 +257,25 @@ async fn send_to_editor(
         return Err("Nu s-au găsit fișiere valide".to_string());
     }
 
-    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window).await
+    let total_size: u64 = files.iter().map(|f| f.size).sum();
+    let file_count = files.len();
+    let target = service.name.clone();
+    let folder = folder_name.clone();
+
+    // Trimite fișierele
+    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window).await?;
+
+    // Salvează în istoricul de trimiteri
+    let sent_record = SentRecord {
+        timestamp: chrono::Utc::now(),
+        target_name: target,
+        file_count,
+        total_size,
+        folder_name: folder,
+    };
+    let _ = add_sent_record(sent_record);
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -270,6 +289,11 @@ async fn get_temp_folders(state: State<'_, AppState>) -> Result<Vec<server::Temp
 async fn cancel_current_transfer(state: State<'_, AppState>) -> Result<(), String> {
     state.is_transfer_cancelled.store(true, Ordering::Relaxed);
     Ok(())
+}
+
+#[tauri::command]
+async fn get_sent_history() -> Result<Vec<SentRecord>, String> {
+    load_sent_history()
 }
 
 #[tauri::command]
@@ -342,6 +366,7 @@ pub fn run() {
             cancel_current_transfer,
             get_day_counter,
             set_day_counter,
+            get_sent_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

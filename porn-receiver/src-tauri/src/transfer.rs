@@ -2,7 +2,7 @@ use crate::discovery::DiscoveredService;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -28,8 +28,9 @@ const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunks
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
-    pub path: String,
-    pub name: String,
+    pub path: String,          // Calea absolută pe sursă
+    pub name: String,          // Numele fișierului
+    pub relative_path: String, // Calea relativă (ex: "web/photo.jpg") pentru structura folder
     pub size: u64,
 }
 
@@ -57,6 +58,8 @@ struct TransferHeader {
 #[derive(Serialize, Deserialize)]
 struct FileMetadata {
     name: String,
+    #[serde(default)]
+    relative_path: String, // Calea relativă pentru structura folder
     size: u64,
     checksum: String,
 }
@@ -100,6 +103,7 @@ pub async fn send_files_to_editor(
         .iter()
         .map(|f| FileMetadata {
             name: f.name.clone(),
+            relative_path: f.relative_path.clone(), // Include calea relativă pentru subfoldere
             size: f.size,
             checksum: String::new(), // Fără checksum
         })
@@ -155,8 +159,9 @@ pub async fn send_files_to_editor(
     }
 
     // Trimite lista de fișiere de transferat (serverul așteaptă această listă)
+    // Folosim relative_path pentru a identifica corect fișierele cu subfoldere
     println!("Trimit lista de {} fișiere...", files.len());
-    let files_to_send: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
+    let files_to_send: Vec<String> = files.iter().map(|f| f.relative_path.clone()).collect();
     let decision_json = serde_json::to_string(&files_to_send).map_err(|e| e.to_string())?;
     let decision_bytes = decision_json.as_bytes();
 
@@ -262,30 +267,17 @@ pub fn prepare_files(paths: &[String]) -> Vec<FileInfo> {
         let path = PathBuf::from(p);
 
         if path.is_dir() {
-            // Dacă e folder, adaugă toate fișierele din el (recursiv)
-            if let Ok(entries) = std::fs::read_dir(&path) {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let entry_path = entry.path();
-                    if entry_path.is_file() {
-                        if let Ok(metadata) = std::fs::metadata(&entry_path) {
-                            if let Some(name) = entry_path.file_name() {
-                                files.push(FileInfo {
-                                    path: entry_path.to_string_lossy().to_string(),
-                                    name: name.to_string_lossy().to_string(),
-                                    size: metadata.len(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+            // Dacă e folder, parcurge RECURSIV toate fișierele și subfolderele
+            collect_files_recursive(&path, &path, &mut files);
         } else if path.is_file() {
-            // Dacă e fișier, adaugă-l direct
+            // Dacă e fișier individual, adaugă-l direct
             if let Ok(metadata) = std::fs::metadata(&path) {
                 if let Some(name) = path.file_name() {
+                    let name_str = name.to_string_lossy().to_string();
                     files.push(FileInfo {
                         path: p.clone(),
-                        name: name.to_string_lossy().to_string(),
+                        name: name_str.clone(),
+                        relative_path: name_str, // Fișier individual - relative_path = name
                         size: metadata.len(),
                     });
                 }
@@ -294,4 +286,52 @@ pub fn prepare_files(paths: &[String]) -> Vec<FileInfo> {
     }
 
     files
+}
+
+/// Parcurge recursiv un folder și colectează toate fișierele
+/// `current` = folderul curent de parcurs
+/// `root` = folderul rădăcină (pentru a calcula calea relativă)
+/// Ignoră fișierele și folderele ascunse (care încep cu `.`)
+fn collect_files_recursive(current: &Path, root: &Path, files: &mut Vec<FileInfo>) {
+    if let Ok(entries) = std::fs::read_dir(current) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let entry_path = entry.path();
+
+            // Ignoră fișierele și folderele ascunse (care încep cu `.`)
+            if let Some(name) = entry_path.file_name() {
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with('.') {
+                    continue; // Skip .DS_Store, .hidden, etc.
+                }
+            }
+
+            if entry_path.is_dir() {
+                // Recursiv în subfolder
+                collect_files_recursive(&entry_path, root, files);
+            } else if entry_path.is_file() {
+                // Calculează calea relativă față de root
+                let relative = entry_path
+                    .strip_prefix(root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| {
+                        entry_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default()
+                    });
+
+                if let Ok(metadata) = std::fs::metadata(&entry_path) {
+                    files.push(FileInfo {
+                        path: entry_path.to_string_lossy().to_string(),
+                        name: entry_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                        relative_path: relative,
+                        size: metadata.len(),
+                    });
+                }
+            }
+        }
+    }
 }

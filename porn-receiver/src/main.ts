@@ -18,6 +18,7 @@ interface ReceiverConfig {
 }
 
 interface TransferProgress {
+  transfer_id: string;
   photographer: string;
   file_name: string;
   file_index: number;
@@ -28,6 +29,7 @@ interface TransferProgress {
 }
 
 interface TransferRecord {
+  transfer_id: string;
   timestamp: string;
   photographer: string;
   file_count: number;
@@ -42,6 +44,14 @@ interface DiscoveredEditor {
   role: string;
   host: string;
   port: number;
+}
+
+interface SentRecord {
+  timestamp: string;
+  target_name: string;
+  file_count: number;
+  total_size: number;
+  folder_name: string | null;
 }
 
 interface SendProgress {
@@ -356,21 +366,23 @@ async function setupTauriListeners() {
     statusText.textContent = "Oprit";
   });
 
-  await listen<string>("transfer-started", (event) => {
-    const photographer = event.payload;
+  await listen<{transfer_id: string, photographer: string}>("transfer-started", (event) => {
+    const { photographer } = event.payload;
     showToast(`Transfer de la ${photographer}...`, "success");
     document.getElementById("transfers-empty")!.style.display = "none";
   });
 
   await listen<TransferProgress>("transfer-progress", (event) => {
     const p = event.payload;
-    activeTransfers.set(p.photographer, p);
+    // Folosește transfer_id ca cheie pentru a suporta transferuri simultane
+    activeTransfers.set(p.transfer_id, p);
     updateTransfersUI();
   });
 
   await listen<TransferRecord>("transfer-complete", (event) => {
     const record = event.payload;
-    activeTransfers.delete(record.photographer);
+    // Folosește transfer_id pentru a șterge transferul corect
+    activeTransfers.delete(record.transfer_id);
     updateTransfersUI();
     showToast(`Transfer complet: ${record.file_count} fisiere de la ${record.photographer}`, "success");
     loadHistory();
@@ -383,13 +395,15 @@ async function setupTauriListeners() {
 
   await listen<TransferRecord>("transfer-partial", (event) => {
     const record = event.payload;
+    activeTransfers.delete(record.transfer_id);
+    updateTransfersUI();
     showToast(`Transfer întrerupt: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
     loadHistory();
   });
 
   await listen<TransferRecord>("transfer-cancelled", (event) => {
     const record = event.payload;
-    activeTransfers.clear();
+    activeTransfers.delete(record.transfer_id);
     updateTransfersUI();
     showToast(`Transfer anulat: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
     loadHistory();
@@ -422,6 +436,7 @@ function showMainContent() {
 
     updateUIForRole();
     loadHistory();
+    loadSentHistory();
   }
 }
 
@@ -1124,7 +1139,50 @@ async function setupSendListeners() {
   await listen<number>("send-complete", (event) => {
     sendProgress.style.display = "none";
     showToast(`Transfer complet: ${event.payload} fisiere trimise`, "success");
+    loadSentHistory(); // Reîncarcă istoricul de trimiteri
   });
+}
+
+// ==================== ISTORIC TRIMITERI ====================
+
+async function loadSentHistory() {
+  try {
+    const sentHistory = await invoke<SentRecord[]>("get_sent_history");
+    const container = document.getElementById("sent-history-list");
+    if (!container) return;
+
+    if (sentHistory.length === 0) {
+      container.innerHTML = '<div class="empty-state">Nicio trimitere încă</div>';
+      return;
+    }
+
+    // Sortează după timestamp descrescător (cele mai recente primele)
+    const sorted = [...sentHistory].sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    container.innerHTML = sorted.slice(0, 50).map(record => {
+      const date = new Date(record.timestamp);
+      const timeStr = date.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
+      const dateStr = date.toLocaleDateString("ro-RO", { day: "2-digit", month: "short" });
+
+      return `
+        <div class="sent-item">
+          <div class="sent-header">
+            <span class="sent-target">→ ${record.target_name}</span>
+            <span class="sent-time">${dateStr} ${timeStr}</span>
+          </div>
+          <div class="sent-details">
+            <span>${record.file_count} fișiere</span>
+            <span>${formatSize(record.total_size)}</span>
+            ${record.folder_name ? `<span class="sent-folder">${record.folder_name}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error("Error loading sent history:", e);
+  }
 }
 
 // ==================== AUTO-UPDATE ====================

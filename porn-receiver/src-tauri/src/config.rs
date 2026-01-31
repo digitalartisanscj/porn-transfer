@@ -146,6 +146,8 @@ impl ReceiverConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferRecord {
+    #[serde(default)]
+    pub transfer_id: String, // ID unic pentru transferuri simultane
     pub timestamp: DateTime<Utc>,
     pub photographer: String,
     pub file_count: usize,
@@ -194,4 +196,45 @@ pub fn clear_history() -> Result<(), String> {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+// ========== ISTORIC TRIMITERI (SENT HISTORY) ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentRecord {
+    pub timestamp: DateTime<Utc>,
+    pub target_name: String,     // Numele destinatarului (editor)
+    pub file_count: usize,
+    pub total_size: u64,
+    pub folder_name: Option<String>, // Numele folderului trimis (dacă e folder)
+}
+
+fn sent_history_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".porn_transfer_sent_history.json")
+}
+
+pub fn load_sent_history() -> Result<Vec<SentRecord>, String> {
+    let path = sent_history_path();
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+pub fn save_sent_history(history: &[SentRecord]) -> Result<(), String> {
+    let path = sent_history_path();
+    // Keep only last 500 records
+    let to_save: Vec<_> = history.iter().rev().take(500).cloned().collect();
+    let content = serde_json::to_string_pretty(&to_save).map_err(|e| e.to_string())?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+pub fn add_sent_record(record: SentRecord) -> Result<(), String> {
+    let mut history = load_sent_history().unwrap_or_default();
+    history.push(record);
+    save_sent_history(&history)
 }

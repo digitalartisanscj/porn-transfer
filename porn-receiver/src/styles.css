@@ -1078,3 +1078,67 @@ body {
 #update-status.error {
   color: var(--error);
 }
+
+/* ==================== ISTORIC TRIMITERI ==================== */
+
+.sent-history-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.sent-history-section h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+}
+
+.sent-history-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.sent-item {
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.sent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.sent-target {
+  font-weight: 500;
+  color: var(--orange);
+}
+
+.sent-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sent-details {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sent-folder {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}

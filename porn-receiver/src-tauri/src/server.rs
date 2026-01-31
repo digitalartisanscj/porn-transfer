@@ -27,6 +27,8 @@ struct TransferHeader {
 #[derive(Serialize, Deserialize)]
 struct FileMetadata {
     name: String,
+    #[serde(default)]
+    relative_path: String, // Calea relativă pentru structura subfolder
     size: u64,
     checksum: String,
 }
@@ -527,14 +529,31 @@ fn handle_connection(
     std::fs::create_dir_all(&full_path)
         .map_err(|e| format!("Eroare creare folder: {}", e))?;
 
+    // Filtrează fișierele de primit folosind relative_path (sau name dacă relative_path e gol)
     let files_to_receive: Vec<&FileMetadata> = header
         .files
         .iter()
-        .filter(|f| files_to_send.contains(&f.name))
+        .filter(|f| {
+            let key = if f.relative_path.is_empty() { &f.name } else { &f.relative_path };
+            files_to_send.contains(key)
+        })
         .collect();
 
-    // Emit transfer started
-    let _ = window.emit("transfer-started", &header.photographer);
+    // Generează un transfer_id unic pentru acest transfer
+    let transfer_id = format!(
+        "{}_{}",
+        header.photographer.replace(' ', "_"),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+
+    // Emit transfer started cu transfer_id
+    let _ = window.emit("transfer-started", serde_json::json!({
+        "transfer_id": transfer_id,
+        "photographer": header.photographer
+    }));
 
     // Receive files
     let total_bytes: u64 = files_to_receive.iter().map(|f| f.size).sum();
@@ -563,11 +582,12 @@ fn handle_connection(
     let folder_path_str = full_path.to_string_lossy().to_string();
 
     // Helper function pentru salvare/actualizare în istoric
-    let save_to_history = |hist: &Arc<Mutex<Vec<TransferRecord>>>, status: TransferStatus| {
+    let save_to_history = |hist: &Arc<Mutex<Vec<TransferRecord>>>, status: TransferStatus, tid: &str| {
         // Numără fișierele reale din folder
         let (real_file_count, real_total_size) = count_real_files();
 
         let record = TransferRecord {
+            transfer_id: tid.to_string(),
             timestamp: Utc::now(),
             photographer: header.photographer.clone(),
             file_count: real_file_count,
@@ -601,17 +621,37 @@ fn handle_connection(
     for (index, file_meta) in files_to_receive.iter().enumerate() {
         // Verifică dacă transferul a fost anulat
         if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
-            let record = save_to_history(history, TransferStatus::Partial);
+            let record = save_to_history(history, TransferStatus::Partial, &transfer_id);
             let _ = window.emit("transfer-cancelled", &record);
             return Err("Transfer anulat de utilizator".to_string());
         }
 
-        let file_path = full_path.join(&file_meta.name);
+        // Folosește relative_path pentru a păstra structura de subfoldere
+        // Dacă relative_path e gol, folosește name
+        let relative = if file_meta.relative_path.is_empty() {
+            &file_meta.name
+        } else {
+            &file_meta.relative_path
+        };
+        let file_path = full_path.join(relative);
+
+        // Creează subfoldere dacă e necesar
+        if let Some(parent) = file_path.parent() {
+            if parent != full_path {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    let record = save_to_history(history, TransferStatus::Error, &transfer_id);
+                    let _ = window.emit("transfer-error", format!("Eroare creare subfolder: {}", e));
+                    let _ = window.emit("transfer-partial", &record);
+                    return Err(format!("Eroare creare subfolder: {}", e));
+                }
+            }
+        }
+
         let mut file = match std::fs::File::create(&file_path) {
             Ok(f) => f,
             Err(e) => {
                 // Salvează în istoric ca eroare
-                let record = save_to_history(history, TransferStatus::Error);
+                let record = save_to_history(history, TransferStatus::Error, &transfer_id);
                 let _ = window.emit("transfer-error", format!("Eroare creare fișier {}: {}", file_meta.name, e));
                 let _ = window.emit("transfer-partial", &record);
                 return Err(format!("Eroare creare fișier {}: {}", file_meta.name, e));
@@ -626,21 +666,21 @@ fn handle_connection(
             let bytes_read = match stream.read(&mut buffer[..to_read]) {
                 Ok(0) => {
                     // Conexiune închisă - salvează transferul parțial în istoric
-                    let record = save_to_history(history, TransferStatus::Partial);
+                    let record = save_to_history(history, TransferStatus::Partial, &transfer_id);
                     let _ = window.emit("transfer-partial", &record);
                     return Err("Conexiune închisă prematur".to_string());
                 }
                 Ok(n) => n,
                 Err(e) => {
                     // Eroare de citire (inclusiv timeout) - salvează transferul parțial
-                    let record = save_to_history(history, TransferStatus::Partial);
+                    let record = save_to_history(history, TransferStatus::Partial, &transfer_id);
                     let _ = window.emit("transfer-partial", &record);
                     return Err(format!("Eroare citire date: {}", e));
                 }
             };
 
             if let Err(e) = file.write_all(&buffer[..bytes_read]) {
-                let record = save_to_history(history, TransferStatus::Error);
+                let record = save_to_history(history, TransferStatus::Error, &transfer_id);
                 let _ = window.emit("transfer-partial", &record);
                 return Err(format!("Eroare scriere fișier: {}", e));
             }
@@ -650,7 +690,7 @@ fn handle_connection(
 
             // Verifică dacă transferul a fost anulat după fiecare chunk
             if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
-                let record = save_to_history(history, TransferStatus::Partial);
+                let record = save_to_history(history, TransferStatus::Partial, &transfer_id);
                 let _ = window.emit("transfer-cancelled", &record);
                 return Err("Transfer anulat de utilizator".to_string());
             }
@@ -665,6 +705,7 @@ fn handle_connection(
 
             // Emit progress
             let progress = TransferProgress {
+                transfer_id: transfer_id.clone(),
                 photographer: header.photographer.clone(),
                 file_name: file_meta.name.clone(),
                 file_index: index,
@@ -678,7 +719,7 @@ fn handle_connection(
 
         // Trimite OK - fără verificare checksum
         if let Err(e) = stream.write_all(b"OK") {
-            let record = save_to_history(history, TransferStatus::Partial);
+            let record = save_to_history(history, TransferStatus::Partial, &transfer_id);
             let _ = window.emit("transfer-partial", &record);
             return Err(format!("Eroare trimitere confirmare: {}", e));
         }
@@ -748,6 +789,7 @@ fn handle_connection(
 
     // Salvează în istoric cu calea finală
     let record = TransferRecord {
+        transfer_id: transfer_id.clone(),
         timestamp: Utc::now(),
         photographer: header.photographer.clone(),
         file_count: final_file_count,
