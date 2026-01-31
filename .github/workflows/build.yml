@@ -38,7 +38,7 @@ jobs:
         shell: bash
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_PRIVATE_KEY_PASSWORD: ""
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           exe=$(find src-tauri/target/release/bundle/nsis -name "*.exe" | head -1)
           echo "Signing $exe"
