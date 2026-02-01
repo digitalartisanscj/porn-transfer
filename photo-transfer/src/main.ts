@@ -41,6 +41,16 @@ interface ChecksumProgress {
   file_name: string;
 }
 
+interface SendRecord {
+  timestamp: string;
+  target_name: string;
+  target_role: string;
+  file_count: number;
+  total_size: number;
+  status: string;
+  error_message: string | null;
+}
+
 // State - now stores all services, keyed by unique identifier (name+host)
 let allServices: DiscoveredService[] = [];
 let pendingFiles: string[] = [];
@@ -49,6 +59,14 @@ let pendingDuplicateCheck: {
   receiver: DiscoveredService;
   paths: string[];
   result: DuplicateCheckResult;
+} | null = null;
+
+// Current transfer info for history
+let currentTransfer: {
+  targetName: string;
+  targetRole: string;
+  fileCount: number;
+  totalSize: number;
 } | null = null;
 
 // DOM Elements
@@ -77,8 +95,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupTauriListeners();
   setupManualConnect();
   setupDuplicateModal();
+  setupHistory();
+  setupRestart();
   startServiceDiscovery();
   updateDropZonesState();
+  loadHistory();
 
   // Check for updates
   checkForUpdates();
@@ -301,22 +322,52 @@ async function setupTauriListeners() {
     progressStats.textContent = `${p.file_index + 1} / ${p.total_files} fișiere`;
     progressFile.textContent = p.file_name;
     progressSpeed.textContent = `${p.speed_mbps.toFixed(1)} MB/s`;
+
+    // Update current transfer info with actual values
+    if (currentTransfer) {
+      currentTransfer.fileCount = p.total_files;
+      currentTransfer.totalSize = p.total_bytes;
+    }
   });
 
   // Transfer complete
-  await listen<number>("transfer-complete", (event) => {
+  await listen<number>("transfer-complete", async (event) => {
     isTransferring = false;
     progressSection.classList.remove("active");
     showToast(`Transfer complet: ${event.payload} fișiere`, "success");
     enableDropZones();
+
+    // Save to history
+    if (currentTransfer) {
+      await saveToHistory(
+        currentTransfer.targetName,
+        currentTransfer.targetRole,
+        event.payload,
+        currentTransfer.totalSize,
+        "success"
+      );
+      currentTransfer = null;
+    }
   });
 
   // Transfer cancelled (from backend)
-  await listen("transfer-cancelled", () => {
+  await listen("transfer-cancelled", async () => {
     isTransferring = false;
     progressSection.classList.remove("active");
     showToast("Transfer anulat", "error");
     enableDropZones();
+
+    // Save to history
+    if (currentTransfer) {
+      await saveToHistory(
+        currentTransfer.targetName,
+        currentTransfer.targetRole,
+        currentTransfer.fileCount,
+        currentTransfer.totalSize,
+        "cancelled"
+      );
+      currentTransfer = null;
+    }
   });
 
   // Cancel button
@@ -331,6 +382,18 @@ async function setupTauriListeners() {
       progressSection.classList.remove("active");
       showToast("Transfer anulat", "error");
       enableDropZones();
+
+      // Save to history
+      if (currentTransfer) {
+        await saveToHistory(
+          currentTransfer.targetName,
+          currentTransfer.targetRole,
+          currentTransfer.fileCount,
+          currentTransfer.totalSize,
+          "cancelled"
+        );
+        currentTransfer = null;
+      }
     }
   });
 }
@@ -552,7 +615,12 @@ async function sendFilesToReceiver(receiver: DiscoveredService, paths: string[])
     }
   } catch (e) {
     console.error("Error:", e);
+    // Reset toate state-urile la eroare
+    isTransferring = false;
+    pendingDuplicateCheck = null;
+    currentTransfer = null;
     progressSection.classList.remove("active");
+    enableDropZones();
     showToast(`Eroare: ${e}`, "error");
   }
 }
@@ -722,6 +790,17 @@ async function startTransfer(receiver: DiscoveredService, paths: string[], name:
   isTransferring = true;
   disableDropZones();
 
+  // Calculate total size
+  const totalSize = await calculateTotalSize(paths);
+
+  // Save current transfer info for history
+  currentTransfer = {
+    targetName: receiver.name,
+    targetRole: receiver.role,
+    fileCount: paths.length,
+    totalSize,
+  };
+
   // Show progress
   progressSection.classList.add("active");
   progressBar.style.width = "0%";
@@ -740,10 +819,27 @@ async function startTransfer(receiver: DiscoveredService, paths: string[], name:
   } catch (e) {
     console.error("Transfer error:", e);
     showToast(`Eroare transfer: ${e}`, "error");
+    // Save error to history
+    if (currentTransfer) {
+      await saveToHistory(
+        currentTransfer.targetName,
+        currentTransfer.targetRole,
+        currentTransfer.fileCount,
+        currentTransfer.totalSize,
+        "error",
+        String(e)
+      );
+      currentTransfer = null;
+    }
     isTransferring = false;
     progressSection.classList.remove("active");
     enableDropZones();
   }
+}
+
+async function calculateTotalSize(_paths: string[]): Promise<number> {
+  // We'll estimate based on paths - actual size comes from transfer progress
+  return 0; // Will be updated from transfer progress
 }
 
 async function startTransferWithSelection(
@@ -754,6 +850,14 @@ async function startTransferWithSelection(
 ) {
   isTransferring = true;
   disableDropZones();
+
+  // Save current transfer info for history
+  currentTransfer = {
+    targetName: receiver.name,
+    targetRole: receiver.role,
+    fileCount: filesToSend.length,
+    totalSize: 0, // Will be updated from progress
+  };
 
   // Show progress
   progressSection.classList.add("active");
@@ -774,6 +878,18 @@ async function startTransferWithSelection(
   } catch (e) {
     console.error("Transfer error:", e);
     showToast(`Eroare transfer: ${e}`, "error");
+    // Save error to history
+    if (currentTransfer) {
+      await saveToHistory(
+        currentTransfer.targetName,
+        currentTransfer.targetRole,
+        currentTransfer.fileCount,
+        currentTransfer.totalSize,
+        "error",
+        String(e)
+      );
+      currentTransfer = null;
+    }
     isTransferring = false;
     progressSection.classList.remove("active");
     enableDropZones();
@@ -875,4 +991,131 @@ function setupManualConnect() {
       showToast(`Eroare: ${e}`, "error");
     }
   });
+}
+
+// ==================== RESTART CONNECTION ====================
+
+function setupRestart() {
+  const btnRestart = document.getElementById("btn-restart")!;
+
+  btnRestart.addEventListener("click", async () => {
+    try {
+      // Reset frontend state
+      isTransferring = false;
+      pendingDuplicateCheck = null;
+      currentTransfer = null;
+      pendingFiles = [];
+
+      // Hide UI elements
+      progressSection.classList.remove("active");
+      progressBar.style.width = "0%";
+      document.getElementById("duplicate-modal")!.style.display = "none";
+      document.getElementById("receiver-select-modal")!.style.display = "none";
+      document.getElementById("manual-modal")!.style.display = "none";
+
+      // Reset backend
+      await invoke("restart_connection");
+
+      // Reload services (will be re-discovered by mDNS)
+      allServices = await invoke<DiscoveredService[]>("get_services");
+      updateServiceStatus();
+      enableDropZones();
+
+      showToast("Restart complet - poți trimite din nou", "success");
+    } catch (e) {
+      showToast(`Eroare restart: ${e}`, "error");
+    }
+  });
+}
+
+// ==================== ISTORIC TRIMITERI ====================
+
+function setupHistory() {
+  const btnToggle = document.getElementById("btn-toggle-history")!;
+  const historySection = document.getElementById("history-section")!;
+  const btnClear = document.getElementById("btn-clear-history")!;
+
+  btnToggle.addEventListener("click", () => {
+    if (historySection.style.display === "none") {
+      historySection.style.display = "block";
+      loadHistory();
+    } else {
+      historySection.style.display = "none";
+    }
+  });
+
+  btnClear.addEventListener("click", async () => {
+    if (confirm("Sigur vrei să ștergi tot istoricul?")) {
+      try {
+        await invoke("clear_history");
+        loadHistory();
+        showToast("Istoric șters", "success");
+      } catch (e) {
+        showToast(`Eroare: ${e}`, "error");
+      }
+    }
+  });
+}
+
+async function loadHistory() {
+  try {
+    const history = await invoke<SendRecord[]>("get_send_history");
+    const list = document.getElementById("history-list")!;
+
+    if (history.length === 0) {
+      list.innerHTML = '<p class="history-empty">Nicio trimitere inca</p>';
+      return;
+    }
+
+    // Sort by timestamp, newest first
+    history.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    list.innerHTML = history.map((record) => {
+      const date = new Date(record.timestamp);
+      const timeStr = date.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
+      const dateStr = date.toLocaleDateString("ro-RO");
+      const statusClass = record.status.toLowerCase();
+      const statusText = record.status === "Success" ? "OK" : record.status === "Error" ? "Eroare" : "Anulat";
+
+      return `
+        <div class="history-item ${statusClass}">
+          <div class="history-info">
+            <div class="history-target">${record.target_name} (${record.target_role})</div>
+            <div class="history-details">${record.file_count} fișiere - ${formatSize(record.total_size)}</div>
+            ${record.error_message ? `<div class="history-error">${record.error_message}</div>` : ""}
+          </div>
+          <div class="history-time">
+            <div>${timeStr}</div>
+            <div>${dateStr}</div>
+            <span class="history-status ${statusClass}">${statusText}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    console.error("Error loading history:", e);
+  }
+}
+
+async function saveToHistory(
+  targetName: string,
+  targetRole: string,
+  fileCount: number,
+  totalSize: number,
+  status: "success" | "error" | "cancelled",
+  errorMessage?: string
+) {
+  try {
+    await invoke("add_to_send_history", {
+      targetName,
+      targetRole,
+      fileCount,
+      totalSize,
+      status,
+      errorMessage: errorMessage || null,
+    });
+    loadHistory();
+  } catch (e) {
+    console.error("Error saving to history:", e);
+  }
 }

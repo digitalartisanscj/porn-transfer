@@ -1,6 +1,8 @@
+mod config;
 mod discovery;
 mod transfer;
 
+use config::{SendRecord, SendStatus, add_send_record, load_send_history, clear_send_history};
 use discovery::ServiceDiscovery;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -346,6 +348,19 @@ async fn cancel_transfer(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn restart_connection(state: State<'_, AppState>) -> Result<(), String> {
+    // Reset cancelled flag
+    state.is_transfer_cancelled.store(false, Ordering::Relaxed);
+
+    // Clear offline services from discovered list
+    let mut services = state.discovered_services.lock().map_err(|e| e.to_string())?;
+    services.clear(); // Clear all and let mDNS re-discover
+
+    println!("Connection restarted - all states reset");
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_receiver_info(ip: String, port: u16) -> Result<ReceiverInfo, String> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -385,6 +400,47 @@ async fn get_receiver_info(ip: String, port: u16) -> Result<ReceiverInfo, String
         serde_json::from_slice(&response_buf).map_err(|e| format!("Eroare parsare: {}", e))?;
 
     Ok(info)
+}
+
+// ========== ISTORIC TRIMITERI ==========
+
+#[tauri::command]
+async fn get_send_history() -> Result<Vec<SendRecord>, String> {
+    load_send_history()
+}
+
+#[tauri::command]
+async fn add_to_send_history(
+    target_name: String,
+    target_role: String,
+    file_count: usize,
+    total_size: u64,
+    status: String,
+    error_message: Option<String>,
+) -> Result<(), String> {
+    let send_status = match status.as_str() {
+        "success" => SendStatus::Success,
+        "error" => SendStatus::Error,
+        "cancelled" => SendStatus::Cancelled,
+        _ => SendStatus::Success,
+    };
+
+    let record = SendRecord {
+        timestamp: chrono::Utc::now(),
+        target_name,
+        target_role,
+        file_count,
+        total_size,
+        status: send_status,
+        error_message,
+    };
+
+    add_send_record(record)
+}
+
+#[tauri::command]
+async fn clear_history() -> Result<(), String> {
+    clear_send_history()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -432,6 +488,10 @@ pub fn run() {
             check_duplicates_before_send,
             send_files_with_selection,
             cancel_transfer,
+            restart_connection,
+            get_send_history,
+            add_to_send_history,
+            clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

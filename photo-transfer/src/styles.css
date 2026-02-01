@@ -550,3 +550,141 @@ input[type="file"] {
   padding: 6px 10px;
   font-size: 11px;
 }
+
+/* History Section */
+.history-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.history-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--orange);
+}
+
+.btn-clear-history {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear-history:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.history-item.success {
+  border-left: 3px solid var(--success);
+}
+
+.history-item.error {
+  border-left: 3px solid var(--error);
+}
+
+.history-item.cancelled {
+  border-left: 3px solid var(--text-muted);
+}
+
+.history-info {
+  flex: 1;
+}
+
+.history-target {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.history-details {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.history-error {
+  font-size: 11px;
+  color: var(--error);
+  margin-top: 2px;
+}
+
+.history-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.history-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.history-status.success {
+  background: var(--success);
+  color: #000;
+}
+
+.history-status.error {
+  background: var(--error);
+  color: #fff;
+}
+
+.history-status.cancelled {
+  background: var(--text-muted);
+  color: #000;
+}
+
+/* Restart Button */
+.btn-restart {
+  border-color: var(--orange) !important;
+  color: var(--orange) !important;
+}
+
+.btn-restart:hover {
+  background: var(--orange) !important;
+  color: #000 !important;
+}

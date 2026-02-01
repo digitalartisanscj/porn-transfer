@@ -9,6 +9,8 @@ use tauri::Emitter;
 
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB chunks pentru viteză maximă
 const TCP_TIMEOUT_SECS: u64 = 30;
+const MAX_CONNECT_RETRIES: u32 = 3;
+const RETRY_DELAY_MS: u64 = 500;
 
 /// Deschide un fișier pentru citire, cu suport pentru sharing pe Windows
 fn open_file_for_read(path: &str) -> std::io::Result<std::fs::File> {
@@ -69,6 +71,31 @@ pub struct DuplicateCheckResult {
     pub target_folder: String,
 }
 
+/// Conectare cu retry logic
+fn connect_with_retry(addr: &str) -> Result<TcpStream, String> {
+    let mut last_error = String::new();
+
+    for attempt in 1..=MAX_CONNECT_RETRIES {
+        match TcpStream::connect(addr) {
+            Ok(stream) => {
+                if attempt > 1 {
+                    println!("Conectat la {} la încercarea {}", addr, attempt);
+                }
+                return Ok(stream);
+            }
+            Err(e) => {
+                last_error = format!("{}", e);
+                if attempt < MAX_CONNECT_RETRIES {
+                    println!("Încercare {} eșuată pentru {}: {}. Reîncerc...", attempt, addr, e);
+                    std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                }
+            }
+        }
+    }
+
+    Err(format!("Nu m-am putut conecta la {} după {} încercări: {}", addr, MAX_CONNECT_RETRIES, last_error))
+}
+
 /// Verifică duplicatele înainte de transfer - doar după nume (INSTANT)
 pub fn check_duplicates(
     service: &DiscoveredService,
@@ -76,10 +103,9 @@ pub fn check_duplicates(
     files: &[FileInfo],
     _window: Option<&tauri::Window>,
 ) -> Result<DuplicateCheckResult, String> {
-    // Conectare la receiver
+    // Conectare la receiver cu retry
     let addr = format!("{}:{}", service.host, service.port);
-    let mut stream = TcpStream::connect(&addr)
-        .map_err(|e| format!("Nu m-am putut conecta la {}: {}", addr, e))?;
+    let mut stream = connect_with_retry(&addr)?;
 
     stream
         .set_nodelay(true)
@@ -141,15 +167,24 @@ pub fn check_duplicates(
         return Err(format!("Receiver nu e gata: {}", ack.status));
     }
 
-    // Trimite lista goală pentru a închide conexiunea
+    // Trimite lista goală pentru a închide conexiunea (doar verificare duplicate)
     let empty_list: Vec<String> = Vec::new();
     let decision_json = serde_json::to_string(&empty_list).map_err(|e| e.to_string())?;
     let decision_bytes = decision_json.as_bytes();
 
+    // Trimite decizia și așteaptă să fie procesată
     stream
         .write_all(&(decision_bytes.len() as u32).to_be_bytes())
-        .ok();
-    stream.write_all(decision_bytes).ok();
+        .map_err(|e| format!("Eroare trimitere decizie len: {}", e))?;
+    stream
+        .write_all(decision_bytes)
+        .map_err(|e| format!("Eroare trimitere decizie: {}", e))?;
+
+    // Flush pentru a te asigura că datele sunt trimise
+    stream.flush().ok();
+
+    // Închide conexiunea graceful
+    drop(stream);
 
     Ok(DuplicateCheckResult {
         duplicates: ack.duplicates,
@@ -189,10 +224,9 @@ pub async fn send_files_with_selection(
         return Ok(());
     }
 
-    // Conectare la receiver
+    // Conectare la receiver cu retry
     let addr = format!("{}:{}", service.host, service.port);
-    let mut stream = TcpStream::connect(&addr)
-        .map_err(|e| format!("Nu m-am putut conecta la {}: {}", addr, e))?;
+    let mut stream = connect_with_retry(&addr)?;
 
     stream
         .set_nodelay(true)
