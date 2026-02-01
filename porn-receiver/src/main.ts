@@ -390,6 +390,9 @@ async function setupTauriListeners() {
   });
 
   await listen<string>("transfer-error", (event) => {
+    // La eroare, curăță toate transferurile active (nu știm care a eșuat)
+    // În viitor am putea trimite transfer_id pentru a fi mai specific
+    console.error("Transfer error:", event.payload);
     showToast(`Eroare transfer: ${event.payload}`, "error");
   });
 

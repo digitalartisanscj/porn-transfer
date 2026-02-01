@@ -319,17 +319,18 @@ pub fn run_server(
         // Try to accept connection
         match listener.accept() {
             Ok((stream, addr)) => {
-                println!("Connection from: {}", addr);
+                println!("=== Conexiune nouă de la: {} ===", addr);
 
                 let config = {
                     let c = config_state.lock().map_err(|e| e.to_string())?;
                     c.clone()
                 };
 
-                // Reset flag la începutul fiecărui transfer
+                // Reset flag la începutul fiecărui conexiuni
+                // NOTĂ: Acest flag este global - cancel va afecta toate transferurile active
                 is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
 
-                if let Err(e) = handle_connection(
+                match handle_connection(
                     stream,
                     config,
                     &config_state,
@@ -337,8 +338,13 @@ pub fn run_server(
                     &is_cancelled,
                     &window,
                 ) {
-                    eprintln!("Transfer error: {}", e);
-                    let _ = window.emit("transfer-error", e.to_string());
+                    Ok(()) => {
+                        println!("=== Conexiune finalizată cu succes de la {} ===", addr);
+                    }
+                    Err(e) => {
+                        eprintln!("!!! Eroare conexiune de la {}: {} !!!", addr, e);
+                        let _ = window.emit("transfer-error", e.to_string());
+                    }
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -502,8 +508,11 @@ fn handle_connection(
     // Dacă lista e goală, senderul a anulat (check_duplicates only)
     // Nu am creat niciun folder, deci nu trebuie să curățăm nimic
     if files_to_send.is_empty() {
+        println!("--- Verificare duplicate finalizată (lista goală, fără transfer) ---");
         return Ok(());
     }
+
+    println!("--- Se vor primi {} fișiere de la {} ---", files_to_send.len(), header.photographer);
 
     // ACUM creăm folderul TEMPORAR - sau folosim cel existent pentru reluare
     // Folderul va fi redenumit la final cu numele numerotat
