@@ -11,11 +11,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
+// Callback-uri pentru discovery (trebuie să fie Sync pentru a fi partajate între thread-uri)
+type ServiceFoundCallback = Arc<dyn Fn(DiscoveredService) + Send + Sync>;
+type ServiceRemovedCallback = Arc<dyn Fn(String) + Send + Sync>;
+
 // State pentru serviciile descoperite
 pub struct AppState {
-    pub discovery: Arc<Mutex<ServiceDiscovery>>,
+    pub discovery: Arc<Mutex<Option<ServiceDiscovery>>>,
     pub discovered_services: Arc<Mutex<HashMap<String, DiscoveredService>>>,
     pub is_transfer_cancelled: Arc<AtomicBool>,
+    // Callback-uri pentru recrearea discovery-ului
+    pub on_service_found: ServiceFoundCallback,
+    pub on_service_removed: ServiceRemovedCallback,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,6 +368,55 @@ async fn restart_connection(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn restart_discovery(state: State<'_, AppState>) -> Result<(), String> {
+    println!("=== RESTART DISCOVERY ===");
+
+    // Reset cancelled flag
+    state.is_transfer_cancelled.store(false, Ordering::Relaxed);
+
+    // Oprește vechiul discovery și curăță serviciile
+    {
+        let mut discovery = state.discovery.lock().map_err(|e| e.to_string())?;
+        if let Some(ref d) = *discovery {
+            d.stop();
+        }
+        *discovery = None;
+
+        let mut services = state.discovered_services.lock().map_err(|e| e.to_string())?;
+        services.clear();
+    }
+
+    // Așteaptă puțin pentru cleanup
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Creează un nou discovery
+    let on_found = Arc::clone(&state.on_service_found);
+    let on_removed = Arc::clone(&state.on_service_removed);
+
+    let new_discovery = ServiceDiscovery::new(
+        move |service| on_found(service),
+        move |fullname| on_removed(fullname),
+    );
+
+    {
+        let mut discovery = state.discovery.lock().map_err(|e| e.to_string())?;
+        *discovery = Some(new_discovery);
+    }
+
+    println!("=== DISCOVERY RESTARTED ===");
+    Ok(())
+}
+
+#[tauri::command]
+async fn refresh_discovery(state: State<'_, AppState>) -> Result<(), String> {
+    let discovery = state.discovery.lock().map_err(|e| e.to_string())?;
+    if let Some(ref d) = *discovery {
+        d.refresh();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_receiver_info(ip: String, port: u16) -> Result<ReceiverInfo, String> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -446,27 +502,39 @@ async fn clear_history() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let discovered_services = Arc::new(Mutex::new(HashMap::new()));
-    let services_clone = Arc::clone(&discovered_services);
-    let services_clone_remove = Arc::clone(&discovered_services);
 
-    // Pornește service discovery
-    let discovery = ServiceDiscovery::new(
-        move |service| {
-            let mut services = services_clone.lock().unwrap();
+    // Creează callback-uri partajate pentru discovery
+    let services_for_found = Arc::clone(&discovered_services);
+    let on_service_found: ServiceFoundCallback = Arc::new(move |service| {
+        if let Ok(mut services) = services_for_found.lock() {
+            println!("mDNS: Adding service {} to list", service.name);
             services.insert(service.name.clone(), service);
-        },
-        move |fullname| {
-            let mut services = services_clone_remove.lock().unwrap();
+        }
+    });
+
+    let services_for_removed = Arc::clone(&discovered_services);
+    let on_service_removed: ServiceRemovedCallback = Arc::new(move |fullname| {
+        if let Ok(mut services) = services_for_removed.lock() {
             // Remove service by matching fullname pattern in the stored services
             services.retain(|name, _| !fullname.contains(name) && !name.contains(&fullname.split('.').next().unwrap_or("")));
             println!("mDNS: Services after removal: {:?}", services.keys().collect::<Vec<_>>());
-        },
+        }
+    });
+
+    // Pornește service discovery
+    let on_found_clone = Arc::clone(&on_service_found);
+    let on_removed_clone = Arc::clone(&on_service_removed);
+    let discovery = ServiceDiscovery::new(
+        move |service| on_found_clone(service),
+        move |fullname| on_removed_clone(fullname),
     );
 
     let app_state = AppState {
-        discovery: Arc::new(Mutex::new(discovery)),
+        discovery: Arc::new(Mutex::new(Some(discovery))),
         discovered_services,
         is_transfer_cancelled: Arc::new(AtomicBool::new(false)),
+        on_service_found,
+        on_service_removed,
     };
 
     tauri::Builder::default()
@@ -489,6 +557,8 @@ pub fn run() {
             send_files_with_selection,
             cancel_transfer,
             restart_connection,
+            restart_discovery,
+            refresh_discovery,
             get_send_history,
             add_to_send_history,
             clear_history,

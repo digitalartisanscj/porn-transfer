@@ -1075,16 +1075,17 @@ async function sendFilesToEditor(paths: string[]) {
 
   const editor = selectedEditor;
 
-  // Extrage numele folderului dacă se trimite un folder
-  // (pentru a păstra numele original în transferuri receiver→receiver)
-  let folderName: string | null = null;
-  if (paths.length === 1) {
-    const path = paths[0];
-    // Verifică dacă e un folder (calea nu conține extensie la final)
+  // Separă path-urile în foldere și fișiere individuale
+  const folders: string[] = [];
+  const files: string[] = [];
+
+  for (const path of paths) {
     const lastPart = path.split(/[/\\]/).pop() || "";
     // Dacă ultimul segment nu are extensie de fișier comun, presupunem că e folder
-    if (lastPart && !lastPart.match(/\.(jpg|jpeg|png|gif|raw|cr2|nef|arw|dng|tif|tiff|psd|mp4|mov|avi)$/i)) {
-      folderName = lastPart;
+    if (lastPart && !lastPart.match(/\.(jpg|jpeg|png|gif|raw|cr2|cr3|nef|arw|dng|tif|tiff|psd|mp4|mov|avi|mkv|heic|heif|webp)$/i)) {
+      folders.push(path);
+    } else {
+      files.push(path);
     }
   }
 
@@ -1092,13 +1093,54 @@ async function sendFilesToEditor(paths: string[]) {
     sendProgress.style.display = "block";
     document.getElementById("send-target-name")!.textContent = editor.name;
 
-    await invoke("send_to_editor", {
-      targetHost: editor.host,
-      targetPort: editor.port,
-      targetName: editor.name,
-      filePaths: paths,
-      folderName: folderName,
-    });
+    // Dacă avem mai multe foldere, trimite-le pe rând pentru a păstra structura
+    if (folders.length > 1) {
+      showToast(`Se trimit ${folders.length} foldere pe rând...`, "success");
+
+      for (let i = 0; i < folders.length; i++) {
+        const folder = folders[i];
+        const folderName = folder.split(/[/\\]/).pop() || null;
+
+        document.getElementById("send-target-name")!.textContent =
+          `${editor.name} (${i + 1}/${folders.length}: ${folderName})`;
+
+        await invoke("send_to_editor", {
+          targetHost: editor.host,
+          targetPort: editor.port,
+          targetName: editor.name,
+          filePaths: [folder],  // Un folder la un moment
+          folderName: folderName,
+        });
+      }
+
+      // Trimite și fișierele individuale (dacă există) într-un singur transfer
+      if (files.length > 0) {
+        document.getElementById("send-target-name")!.textContent =
+          `${editor.name} (fișiere individuale)`;
+
+        await invoke("send_to_editor", {
+          targetHost: editor.host,
+          targetPort: editor.port,
+          targetName: editor.name,
+          filePaths: files,
+          folderName: null,
+        });
+      }
+    } else {
+      // Caz normal: un singur folder sau fișiere
+      let folderName: string | null = null;
+      if (folders.length === 1) {
+        folderName = folders[0].split(/[/\\]/).pop() || null;
+      }
+
+      await invoke("send_to_editor", {
+        targetHost: editor.host,
+        targetPort: editor.port,
+        targetName: editor.name,
+        filePaths: paths,
+        folderName: folderName,
+      });
+    }
   } catch (e) {
     showToast(`Eroare transfer: ${e}`, "error");
     sendProgress.style.display = "none";

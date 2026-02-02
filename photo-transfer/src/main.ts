@@ -97,6 +97,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupDuplicateModal();
   setupHistory();
   setupRestart();
+  setupAutoRefresh();
   startServiceDiscovery();
   updateDropZonesState();
   loadHistory();
@@ -1000,6 +1001,8 @@ function setupRestart() {
 
   btnRestart.addEventListener("click", async () => {
     try {
+      showToast("Se restartează conexiunea...", "success");
+
       // Reset frontend state
       isTransferring = false;
       pendingDuplicateCheck = null;
@@ -1013,17 +1016,58 @@ function setupRestart() {
       document.getElementById("receiver-select-modal")!.style.display = "none";
       document.getElementById("manual-modal")!.style.display = "none";
 
-      // Reset backend
-      await invoke("restart_connection");
+      // Restart mDNS discovery complet (recreează daemon-ul)
+      await invoke("restart_discovery");
 
-      // Reload services (will be re-discovered by mDNS)
+      // Așteaptă puțin pentru a permite serviciilor să fie descoperite
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Reload services
       allServices = await invoke<DiscoveredService[]>("get_services");
       updateServiceStatus();
       enableDropZones();
 
-      showToast("Restart complet - poți trimite din nou", "success");
+      showToast("Restart complet - conexiune reîmprospătată", "success");
     } catch (e) {
       showToast(`Eroare restart: ${e}`, "error");
+    }
+  });
+}
+
+// ==================== AUTO REFRESH mDNS ====================
+
+function setupAutoRefresh() {
+  // Refresh mDNS la fiecare 30 secunde pentru a descoperi servicii noi
+  setInterval(async () => {
+    try {
+      await invoke("refresh_discovery");
+    } catch (e) {
+      console.error("Error refreshing discovery:", e);
+    }
+  }, 30000);
+
+  // Auto-restart discovery când revine din sleep/background
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible") {
+      console.log("App became visible - refreshing discovery");
+      try {
+        // Prima dată doar refresh
+        await invoke("refresh_discovery");
+
+        // Așteaptă 2 secunde și verifică serviciile
+        setTimeout(async () => {
+          const services = await invoke<DiscoveredService[]>("get_services");
+          if (services.length === 0) {
+            // Dacă nu s-au găsit servicii, restartează complet discovery-ul
+            console.log("No services found after wake - restarting discovery");
+            await invoke("restart_discovery");
+          }
+          allServices = await invoke<DiscoveredService[]>("get_services");
+          updateServiceStatus();
+        }, 2000);
+      } catch (e) {
+        console.error("Error on visibility change:", e);
+      }
     }
   });
 }

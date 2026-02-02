@@ -1,0 +1,8 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn /opt/homebrew/bin/npx @tauri-apps/cli signer generate -w /Users/alin/.tauri/porn-new.key
+expect "Password:"
+send "updatekey2024\r"
+expect "password again"
+send "updatekey2024\r"
+expect eof

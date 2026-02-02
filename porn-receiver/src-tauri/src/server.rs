@@ -321,31 +321,38 @@ pub fn run_server(
             Ok((stream, addr)) => {
                 println!("=== Conexiune nouă de la: {} ===", addr);
 
+                // Clone-uri pentru thread-ul nou
                 let config = {
                     let c = config_state.lock().map_err(|e| e.to_string())?;
                     c.clone()
                 };
+                let config_state_clone = Arc::clone(&config_state);
+                let history_clone = Arc::clone(&history);
+                let window_clone = window.clone();
 
-                // Reset flag la începutul fiecărui conexiuni
-                // NOTĂ: Acest flag este global - cancel va afecta toate transferurile active
-                is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
+                // Fiecare transfer are propriul cancel flag
+                let transfer_cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-                match handle_connection(
-                    stream,
-                    config,
-                    &config_state,
-                    &history,
-                    &is_cancelled,
-                    &window,
-                ) {
-                    Ok(()) => {
-                        println!("=== Conexiune finalizată cu succes de la {} ===", addr);
+                // Spawn thread dedicat pentru această conexiune
+                // Permite transferuri simultane de la mai mulți fotografi
+                std::thread::spawn(move || {
+                    match handle_connection(
+                        stream,
+                        config,
+                        &config_state_clone,
+                        &history_clone,
+                        &transfer_cancelled,
+                        &window_clone,
+                    ) {
+                        Ok(()) => {
+                            println!("=== Conexiune finalizată cu succes de la {} ===", addr);
+                        }
+                        Err(e) => {
+                            eprintln!("!!! Eroare conexiune de la {}: {} !!!", addr, e);
+                            let _ = window_clone.emit("transfer-error", e.to_string());
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("!!! Eroare conexiune de la {}: {} !!!", addr, e);
-                        let _ = window.emit("transfer-error", e.to_string());
-                    }
-                }
+                });
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 // No connection waiting, sleep a bit
