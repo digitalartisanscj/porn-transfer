@@ -18,6 +18,7 @@ pub struct AppState {
     pub history: Arc<Mutex<Vec<TransferRecord>>>,
     pub discovery: Arc<Mutex<Option<ServiceDiscovery>>>,
     pub is_transfer_cancelled: Arc<AtomicBool>,
+    pub is_send_cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,7 +264,8 @@ async fn send_to_editor(
     let folder = folder_name.clone();
 
     // Trimite fișierele
-    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window).await?;
+    let is_cancelled = Arc::clone(&state.is_send_cancelled);
+    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window, is_cancelled).await?;
 
     // Salvează în istoricul de trimiteri
     let sent_record = SentRecord {
@@ -288,6 +290,12 @@ async fn get_temp_folders(state: State<'_, AppState>) -> Result<Vec<server::Temp
 #[tauri::command]
 async fn cancel_current_transfer(state: State<'_, AppState>) -> Result<(), String> {
     state.is_transfer_cancelled.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_send_transfer(state: State<'_, AppState>) -> Result<(), String> {
+    state.is_send_cancelled.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -338,11 +346,15 @@ async fn show_notification(title: String, body: String, sound: Option<String>) -
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         // Pe Windows folosește PowerShell pentru a afișa un MessageBox
         // și redă sunetul system
         if sound.is_some() {
             let _ = std::process::Command::new("powershell")
-                .args(["-Command", "[System.Media.SystemSounds]::Asterisk.Play()"])
+                .args(["-WindowStyle", "Hidden", "-Command", "[System.Media.SystemSounds]::Asterisk.Play()"])
+                .creation_flags(CREATE_NO_WINDOW)
                 .spawn();
         }
 
@@ -352,7 +364,8 @@ async fn show_notification(title: String, body: String, sound: Option<String>) -
             title.replace("'", "''")
         );
         std::process::Command::new("powershell")
-            .args(["-Command", &script])
+            .args(["-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -380,6 +393,9 @@ async fn play_sound(sound_name: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         // Pe Windows folosește PowerShell pentru system sounds
         let sound_type = match sound_name.as_str() {
             "receive-photographer" => "Asterisk",
@@ -390,7 +406,8 @@ async fn play_sound(sound_name: String) -> Result<(), String> {
         };
         let script = format!("[System.Media.SystemSounds]::{}::Play()", sound_type);
         std::process::Command::new("powershell")
-            .args(["-Command", &script])
+            .args(["-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -425,6 +442,7 @@ pub fn run() {
         history: Arc::new(Mutex::new(history)),
         discovery: Arc::new(Mutex::new(None)),
         is_transfer_cancelled: Arc::new(AtomicBool::new(false)),
+        is_send_cancelled: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -450,6 +468,7 @@ pub fn run() {
             get_temp_folders,
             delete_temp_folder,
             cancel_current_transfer,
+            cancel_send_transfer,
             get_day_counter,
             set_day_counter,
             get_sent_history,

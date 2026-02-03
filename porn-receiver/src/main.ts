@@ -354,6 +354,18 @@ function setupEventListeners() {
   // Check for updates button
   const btnCheckUpdate = document.getElementById("btn-check-update")!;
   btnCheckUpdate.addEventListener("click", checkForUpdates);
+
+  // Cancel send button
+  const btnCancelSend = document.getElementById("btn-cancel-send")!;
+  btnCancelSend.addEventListener("click", async () => {
+    try {
+      await invoke("cancel_send_transfer");
+      sendProgress.style.display = "none";
+      showToast("Transfer anulat", "error");
+    } catch (e) {
+      console.error("Error cancelling send:", e);
+    }
+  });
 }
 
 async function setupTauriListeners() {

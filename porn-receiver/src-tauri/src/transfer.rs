@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -77,7 +79,10 @@ pub async fn send_files_to_editor(
     files: &[FileInfo],
     folder_name: Option<String>,  // Numele original al folderului (pentru receiver→receiver)
     window: tauri::Window,
+    is_cancelled: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    // Resetează flagul de anulare la începutul transferului
+    is_cancelled.store(false, Ordering::Relaxed);
     // Conectare la editor
     let addr = format!("{}:{}", service.host, service.port);
     println!("Conectare la editor: {}", addr);
@@ -202,6 +207,13 @@ pub async fn send_files_to_editor(
         let mut file_sent: u64 = 0;
 
         while file_sent < file.size {
+            // Verifică dacă transferul a fost anulat
+            if is_cancelled.load(Ordering::Relaxed) {
+                println!("Transfer anulat de utilizator");
+                let _ = window.emit("send-cancelled", ());
+                return Err("Transfer anulat".to_string());
+            }
+
             let bytes_read = file_handle
                 .read(&mut buffer)
                 .map_err(|e| format!("Eroare citire {}: {}", file.name, e))?;

@@ -350,6 +350,30 @@ body {
   color: #fff;
 }
 
+.btn-cancel {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+.send-progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 .progress-bar {
   height: 4px;
   background: var(--border);
