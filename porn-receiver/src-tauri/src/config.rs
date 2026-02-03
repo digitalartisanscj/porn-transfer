@@ -156,6 +156,8 @@ pub struct TransferRecord {
     pub day: Option<String>,
     #[serde(default)]
     pub status: TransferStatus,
+    #[serde(default)]
+    pub source_role: Option<String>, // "tagger", "editor", or None (fotograf)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

@@ -615,6 +615,7 @@ fn handle_connection(
                 None
             },
             status,
+            source_role: header.sender_role.clone(),
         };
 
         if let Ok(mut h) = hist.lock() {
@@ -817,6 +818,7 @@ fn handle_connection(
             None
         },
         status: TransferStatus::Complete,
+        source_role: header.sender_role.clone(),
     };
 
     if let Ok(mut h) = history.lock() {

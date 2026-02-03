@@ -37,6 +37,7 @@ interface TransferRecord {
   folder: string;
   day: string | null;
   status?: "Complete" | "Partial" | "Error";
+  source_role?: string | null; // "tagger", "editor", or null (fotograf)
 }
 
 interface DiscoveredEditor {
@@ -379,7 +380,7 @@ async function setupTauriListeners() {
     updateTransfersUI();
   });
 
-  await listen<TransferRecord>("transfer-complete", (event) => {
+  await listen<TransferRecord>("transfer-complete", async (event) => {
     const record = event.payload;
     // Folosește transfer_id pentru a șterge transferul corect
     activeTransfers.delete(record.transfer_id);
@@ -387,21 +388,41 @@ async function setupTauriListeners() {
     showToast(`Transfer complet: ${record.file_count} fisiere de la ${record.photographer}`, "success");
     loadHistory();
     loadDayCounter(); // Actualizează counter-ul după transfer
+
+    // Notificare și sunet
+    const isFromPhotographer = !record.source_role || record.source_role === null;
+    const sound = isFromPhotographer ? "receive-photographer" : "receive-editor";
+    playSound(sound);
+    await showOSNotification(
+      `Transfer de la ${record.photographer}`,
+      `${record.file_count} fișiere primite`
+    );
   });
 
-  await listen<string>("transfer-error", (event) => {
+  await listen<string>("transfer-error", async (event) => {
     // La eroare, curăță toate transferurile active (nu știm care a eșuat)
     // În viitor am putea trimite transfer_id pentru a fi mai specific
     console.error("Transfer error:", event.payload);
     showToast(`Eroare transfer: ${event.payload}`, "error");
+
+    // Notificare și sunet eroare
+    playSound("error");
+    await showOSNotification("Transfer eșuat", event.payload);
   });
 
-  await listen<TransferRecord>("transfer-partial", (event) => {
+  await listen<TransferRecord>("transfer-partial", async (event) => {
     const record = event.payload;
     activeTransfers.delete(record.transfer_id);
     updateTransfersUI();
     showToast(`Transfer întrerupt: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
     loadHistory();
+
+    // Notificare și sunet eroare
+    playSound("error");
+    await showOSNotification(
+      "Transfer întrerupt",
+      `${record.file_count} fișiere salvate de la ${record.photographer}`
+    );
   });
 
   await listen<TransferRecord>("transfer-cancelled", (event) => {
@@ -763,6 +784,22 @@ function showToast(message: string, type: "success" | "error") {
   setTimeout(() => {
     toast.classList.remove("show");
   }, 3000);
+}
+
+// ==================== NOTIFICATIONS & SOUNDS ====================
+
+function playSound(soundName: string) {
+  // Folosește comanda Rust pentru sunete system
+  invoke("play_sound", { soundName }).catch((e) => {
+    console.error("Sound error:", e);
+  });
+}
+
+async function showOSNotification(title: string, body: string) {
+  // Folosește comanda Rust cu osascript pentru notificări native macOS
+  invoke("show_notification", { title, body }).catch((e) => {
+    console.error("Notification error:", e);
+  });
 }
 
 // Reset history pentru o zi specifică - necesită triple-click + confirmare
@@ -1181,10 +1218,17 @@ async function setupSendListeners() {
     document.getElementById("send-file-name")!.textContent = p.file_name;
   });
 
-  await listen<number>("send-complete", (event) => {
+  await listen<number>("send-complete", async (event) => {
     sendProgress.style.display = "none";
     showToast(`Transfer complet: ${event.payload} fisiere trimise`, "success");
     loadSentHistory(); // Reîncarcă istoricul de trimiteri
+
+    // Notificare și sunet pentru transfer trimis
+    playSound("send-complete");
+    await showOSNotification(
+      "Transfer trimis",
+      `${event.payload} fișiere trimise cu succes`
+    );
   });
 }
 

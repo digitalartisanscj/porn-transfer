@@ -314,6 +314,43 @@ async fn set_day_counter(state: State<'_, AppState>, day: String, value: u32) ->
 }
 
 #[tauri::command]
+async fn show_notification(title: String, body: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            r#"display notification "{}" with title "{}""#,
+            body.replace("\"", "\\\""),
+            title.replace("\"", "\\\"")
+        );
+        std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn play_sound(sound_name: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Folosește system sounds pentru macOS
+        let sound = match sound_name.as_str() {
+            "receive-photographer" => "Glass",
+            "receive-editor" => "Ping",
+            "send-complete" => "Hero",
+            "error" => "Basso",
+            _ => "Pop",
+        };
+        std::process::Command::new("afplay")
+            .args([&format!("/System/Library/Sounds/{}.aiff", sound)])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn delete_temp_folder(path: String) -> Result<(), String> {
     let folder_path = std::path::Path::new(&path);
     if folder_path.exists() && folder_path.is_dir() {
@@ -347,6 +384,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             get_config,
@@ -367,6 +405,8 @@ pub fn run() {
             get_day_counter,
             set_day_counter,
             get_sent_history,
+            show_notification,
+            play_sound,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
