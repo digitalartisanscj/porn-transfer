@@ -314,19 +314,49 @@ async fn set_day_counter(state: State<'_, AppState>, day: String, value: u32) ->
 }
 
 #[tauri::command]
-async fn show_notification(title: String, body: String) -> Result<(), String> {
+async fn show_notification(title: String, body: String, sound: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // Redă sunetul
+        if let Some(ref sound_name) = sound {
+            let _ = std::process::Command::new("afplay")
+                .args([&format!("/System/Library/Sounds/{}.aiff", sound_name)])
+                .spawn();
+        }
+
+        // Folosește display alert care rămâne pe ecran până e dat dismiss
         let script = format!(
-            r#"display notification "{}" with title "{}""#,
-            body.replace("\"", "\\\""),
-            title.replace("\"", "\\\"")
+            r#"display alert "{}" message "{}""#,
+            title.replace("\"", "\\\""),
+            body.replace("\"", "\\\"")
         );
         std::process::Command::new("osascript")
             .args(["-e", &script])
-            .output()
+            .spawn()  // spawn pentru a nu bloca
             .map_err(|e| e.to_string())?;
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Pe Windows folosește PowerShell pentru a afișa un MessageBox
+        // și redă sunetul system
+        if sound.is_some() {
+            let _ = std::process::Command::new("powershell")
+                .args(["-Command", "[System.Media.SystemSounds]::Asterisk.Play()"])
+                .spawn();
+        }
+
+        let script = format!(
+            r#"Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}', '{}', 'OK', 'Information')"#,
+            body.replace("'", "''"),
+            title.replace("'", "''")
+        );
+        std::process::Command::new("powershell")
+            .args(["-Command", &script])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -347,6 +377,24 @@ async fn play_sound(sound_name: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Pe Windows folosește PowerShell pentru system sounds
+        let sound_type = match sound_name.as_str() {
+            "receive-photographer" => "Asterisk",
+            "receive-editor" => "Exclamation",
+            "send-complete" => "Hand",
+            "error" => "Beep",
+            _ => "Asterisk",
+        };
+        let script = format!("[System.Media.SystemSounds]::{}::Play()", sound_type);
+        std::process::Command::new("powershell")
+            .args(["-Command", &script])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 

@@ -389,13 +389,13 @@ async function setupTauriListeners() {
     loadHistory();
     loadDayCounter(); // Actualizează counter-ul după transfer
 
-    // Notificare și sunet
+    // Notificare cu sunet integrat (rămâne mai mult în Notification Center)
     const isFromPhotographer = !record.source_role || record.source_role === null;
-    const sound = isFromPhotographer ? "receive-photographer" : "receive-editor";
-    playSound(sound);
+    const sound = isFromPhotographer ? "Glass" : "Ping";
     await showOSNotification(
       `Transfer de la ${record.photographer}`,
-      `${record.file_count} fișiere primite`
+      `${record.file_count} fișiere primite`,
+      sound
     );
   });
 
@@ -405,9 +405,8 @@ async function setupTauriListeners() {
     console.error("Transfer error:", event.payload);
     showToast(`Eroare transfer: ${event.payload}`, "error");
 
-    // Notificare și sunet eroare
-    playSound("error");
-    await showOSNotification("Transfer eșuat", event.payload);
+    // Notificare cu sunet eroare
+    await showOSNotification("Transfer eșuat", event.payload, "Basso");
   });
 
   await listen<TransferRecord>("transfer-partial", async (event) => {
@@ -417,11 +416,11 @@ async function setupTauriListeners() {
     showToast(`Transfer întrerupt: ${record.file_count} fișiere salvate de la ${record.photographer}`, "error");
     loadHistory();
 
-    // Notificare și sunet eroare
-    playSound("error");
+    // Notificare cu sunet eroare
     await showOSNotification(
       "Transfer întrerupt",
-      `${record.file_count} fișiere salvate de la ${record.photographer}`
+      `${record.file_count} fișiere salvate de la ${record.photographer}`,
+      "Basso"
     );
   });
 
@@ -788,16 +787,10 @@ function showToast(message: string, type: "success" | "error") {
 
 // ==================== NOTIFICATIONS & SOUNDS ====================
 
-function playSound(soundName: string) {
-  // Folosește comanda Rust pentru sunete system
-  invoke("play_sound", { soundName }).catch((e) => {
-    console.error("Sound error:", e);
-  });
-}
-
-async function showOSNotification(title: string, body: string) {
+async function showOSNotification(title: string, body: string, sound?: string) {
   // Folosește comanda Rust cu osascript pentru notificări native macOS
-  invoke("show_notification", { title, body }).catch((e) => {
+  // sound: "Glass", "Ping", "Hero", "Basso", etc.
+  invoke("show_notification", { title, body, sound: sound || null }).catch((e) => {
     console.error("Notification error:", e);
   });
 }
@@ -1223,11 +1216,11 @@ async function setupSendListeners() {
     showToast(`Transfer complet: ${event.payload} fisiere trimise`, "success");
     loadSentHistory(); // Reîncarcă istoricul de trimiteri
 
-    // Notificare și sunet pentru transfer trimis
-    playSound("send-complete");
+    // Notificare cu sunet pentru transfer trimis
     await showOSNotification(
       "Transfer trimis",
-      `${event.payload} fișiere trimise cu succes`
+      `${event.payload} fișiere trimise cu succes`,
+      "Hero"
     );
   });
 }
