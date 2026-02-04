@@ -94,13 +94,20 @@ fn find_temp_folder(base_path: &std::path::Path, photographer: &str) -> Option<s
 }
 
 // Generează un nume de folder temporar unic
-fn generate_temp_folder_name(photographer: &str) -> String {
+// Dacă folder_name este specificat (transfer receiver→receiver), îl include pentru unicitate
+fn generate_temp_folder_name(photographer: &str, folder_name: Option<&str>) -> String {
     let sanitized = photographer.to_lowercase().replace(' ', "_");
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!(".tmp_{}_{}", sanitized, timestamp)
+
+    if let Some(fname) = folder_name {
+        let folder_sanitized = fname.to_lowercase().replace(' ', "_");
+        format!(".tmp_{}_{}_{}", sanitized, folder_sanitized, timestamp)
+    } else {
+        format!(".tmp_{}_{}", sanitized, timestamp)
+    }
 }
 
 // Găsește toate folderele temporare din calea specificată
@@ -528,7 +535,8 @@ fn handle_connection(
         (temp_folder, false)
     } else {
         // Creăm folder TEMPORAR nou - NU incrementăm contorul încă
-        let temp_folder_name = generate_temp_folder_name(&header.photographer);
+        // Include folder_name pentru unicitate la transferuri paralele receiver→receiver
+        let temp_folder_name = generate_temp_folder_name(&header.photographer, header.folder_name.as_deref());
         let path = if config.role == "editor" {
             base_path.join(source_category).join(&temp_folder_name)
         } else if let Some(day) = day_folder {
