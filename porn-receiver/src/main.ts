@@ -56,6 +56,7 @@ interface SentRecord {
 }
 
 interface SendProgress {
+  send_id: string;
   file_name: string;
   file_index: number;
   total_files: number;
@@ -63,6 +64,18 @@ interface SendProgress {
   total_bytes: number;
   speed_mbps: number;
   target_name: string;
+}
+
+interface SendResult {
+  send_id: string;
+  target_name: string;
+  file_count: number;
+}
+
+interface SendError {
+  send_id: string;
+  target_name: string;
+  error: string;
 }
 
 interface TempFolderInfo {
@@ -75,6 +88,7 @@ interface TempFolderInfo {
 
 let config: ReceiverConfig | null = null;
 let activeTransfers: Map<string, TransferProgress> = new Map();
+let activeSends: Map<string, SendProgress> = new Map();  // Pentru trimiteri simultane
 let discoveredEditors: DiscoveredEditor[] = [];
 let selectedEditor: DiscoveredEditor | null = null;
 let pendingFiles: string[] = [];
@@ -95,7 +109,7 @@ let toastMessage: HTMLElement;
 let tabSendBtn: HTMLElement;
 let editorsList: HTMLElement;
 let sendDropZone: HTMLElement;
-let sendProgress: HTMLElement;
+let activeSendsContainer: HTMLElement;
 
 window.addEventListener("DOMContentLoaded", async () => {
   initElements();
@@ -120,7 +134,7 @@ function initElements() {
   tabSendBtn = document.getElementById("tab-send-btn")!;
   editorsList = document.getElementById("editors-list")!;
   sendDropZone = document.getElementById("send-drop-zone")!;
-  sendProgress = document.getElementById("send-progress")!;
+  activeSendsContainer = document.getElementById("active-sends-container")!;
 }
 
 async function loadConfig() {
@@ -354,18 +368,6 @@ function setupEventListeners() {
   // Check for updates button
   const btnCheckUpdate = document.getElementById("btn-check-update")!;
   btnCheckUpdate.addEventListener("click", checkForUpdates);
-
-  // Cancel send button
-  const btnCancelSend = document.getElementById("btn-cancel-send")!;
-  btnCancelSend.addEventListener("click", async () => {
-    try {
-      await invoke("cancel_send_transfer");
-      sendProgress.style.display = "none";
-      showToast("Transfer anulat", "error");
-    } catch (e) {
-      console.error("Error cancelling send:", e);
-    }
-  });
 }
 
 async function setupTauriListeners() {
@@ -580,6 +582,46 @@ function updateTransfersUI() {
     });
 
     list.appendChild(item);
+  });
+}
+
+// Actualizează UI-ul pentru trimiteri simultane
+function updateSendsUI() {
+  activeSendsContainer.innerHTML = "";
+
+  activeSends.forEach((p, sendId) => {
+    const percent = (p.bytes_sent / p.total_bytes) * 100;
+    const item = document.createElement("div");
+    item.className = "send-progress";
+    item.id = `send-${sendId}`;
+    item.innerHTML = `
+      <div class="send-progress-header">
+        <span class="send-progress-target">${p.target_name}</span>
+        <span class="send-progress-stats">${p.file_index + 1}/${p.total_files} - ${p.speed_mbps.toFixed(1)} MB/s</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-bar-fill" style="width: ${percent}%"></div>
+      </div>
+      <div class="send-progress-footer">
+        <p class="send-progress-file">${p.file_name}</p>
+        <button type="button" class="btn btn-cancel btn-cancel-send" data-send-id="${sendId}">Anuleaza</button>
+      </div>
+    `;
+
+    // Add cancel button listener
+    const cancelBtn = item.querySelector('.btn-cancel-send')!;
+    cancelBtn.addEventListener('click', async () => {
+      try {
+        await invoke("cancel_send_transfer");
+        activeSends.delete(sendId);
+        updateSendsUI();
+        showToast(`Trimitere către ${p.target_name} anulată`, "error");
+      } catch (e) {
+        console.error("Error cancelling send:", e);
+      }
+    });
+
+    activeSendsContainer.appendChild(item);
   });
 }
 
@@ -1132,42 +1174,35 @@ async function sendFilesToEditor(paths: string[]) {
   }
 
   try {
-    sendProgress.style.display = "block";
-    document.getElementById("send-target-name")!.textContent = editor.name;
-
-    // Dacă avem mai multe foldere, trimite-le pe rând pentru a păstra structura
+    // Dacă avem mai multe foldere, trimite-le în paralel (fiecare are propriul send_id)
     if (folders.length > 1) {
-      showToast(`Se trimit ${folders.length} foldere pe rând...`, "success");
+      showToast(`Se trimit ${folders.length} foldere...`, "success");
 
-      for (let i = 0; i < folders.length; i++) {
-        const folder = folders[i];
+      // Lansează toate transferurile în paralel
+      const promises = folders.map(folder => {
         const folderName = folder.split(/[/\\]/).pop() || null;
-
-        document.getElementById("send-target-name")!.textContent =
-          `${editor.name} (${i + 1}/${folders.length}: ${folderName})`;
-
-        await invoke("send_to_editor", {
+        return invoke<string>("send_to_editor", {
           targetHost: editor.host,
           targetPort: editor.port,
           targetName: editor.name,
-          filePaths: [folder],  // Un folder la un moment
+          filePaths: [folder],
           folderName: folderName,
         });
-      }
+      });
 
-      // Trimite și fișierele individuale (dacă există) într-un singur transfer
+      // Trimite și fișierele individuale în paralel (dacă există)
       if (files.length > 0) {
-        document.getElementById("send-target-name")!.textContent =
-          `${editor.name} (fișiere individuale)`;
-
-        await invoke("send_to_editor", {
+        promises.push(invoke<string>("send_to_editor", {
           targetHost: editor.host,
           targetPort: editor.port,
           targetName: editor.name,
           filePaths: files,
           folderName: null,
-        });
+        }));
       }
+
+      // Așteaptă toate transferurile (erorile sunt gestionate individual prin events)
+      await Promise.allSettled(promises);
     } else {
       // Caz normal: un singur folder sau fișiere
       let folderName: string | null = null;
@@ -1175,7 +1210,7 @@ async function sendFilesToEditor(paths: string[]) {
         folderName = folders[0].split(/[/\\]/).pop() || null;
       }
 
-      await invoke("send_to_editor", {
+      await invoke<string>("send_to_editor", {
         targetHost: editor.host,
         targetPort: editor.port,
         targetName: editor.name,
@@ -1184,8 +1219,8 @@ async function sendFilesToEditor(paths: string[]) {
       });
     }
   } catch (e) {
-    showToast(`Eroare transfer: ${e}`, "error");
-    sendProgress.style.display = "none";
+    // Eroarea este deja gestionată prin send-error event
+    console.error("Send error:", e);
   }
 }
 
@@ -1214,26 +1249,62 @@ function showEditorSelectionModal() {
 }
 
 async function setupSendListeners() {
-  await listen<SendProgress>("send-progress", (event) => {
-    const p = event.payload;
-    const percent = (p.bytes_sent / p.total_bytes) * 100;
-
-    document.getElementById("send-stats")!.textContent = `${p.file_index + 1}/${p.total_files} - ${p.speed_mbps.toFixed(1)} MB/s`;
-    (document.getElementById("send-progress-bar") as HTMLElement).style.width = `${percent}%`;
-    document.getElementById("send-file-name")!.textContent = p.file_name;
+  // Listener pentru start transfer (adaugă în Map)
+  await listen<SendResult>("send-started", (event) => {
+    const { send_id, target_name, file_count } = event.payload;
+    // Inițializează cu valori placeholder
+    activeSends.set(send_id, {
+      send_id,
+      file_name: "Se conectează...",
+      file_index: 0,
+      total_files: file_count,
+      bytes_sent: 0,
+      total_bytes: 1,
+      speed_mbps: 0,
+      target_name,
+    });
+    updateSendsUI();
   });
 
-  await listen<number>("send-complete", async (event) => {
-    sendProgress.style.display = "none";
-    showToast(`Transfer complet: ${event.payload} fisiere trimise`, "success");
-    loadSentHistory(); // Reîncarcă istoricul de trimiteri
+  // Listener pentru progres transfer
+  await listen<SendProgress>("send-progress", (event) => {
+    const p = event.payload;
+    activeSends.set(p.send_id, p);
+    updateSendsUI();
+  });
+
+  // Listener pentru transfer complet
+  await listen<SendResult>("send-complete", async (event) => {
+    const { send_id, target_name, file_count } = event.payload;
+    activeSends.delete(send_id);
+    updateSendsUI();
+    showToast(`Transfer complet: ${file_count} fișiere trimise către ${target_name}`, "success");
+    loadSentHistory();
 
     // Notificare cu sunet pentru transfer trimis
     await showOSNotification(
       "Transfer trimis",
-      `${event.payload} fișiere trimise cu succes`,
+      `${file_count} fișiere trimise către ${target_name}`,
       "Hero"
     );
+  });
+
+  // Listener pentru erori la trimitere
+  await listen<SendError>("send-error", async (event) => {
+    const { send_id, target_name, error } = event.payload;
+    console.error("Send error:", error);
+    activeSends.delete(send_id);
+    updateSendsUI();
+    showToast(`Eroare trimitere către ${target_name}: ${error}`, "error");
+    await showOSNotification("Trimitere eșuată", `${target_name}: ${error}`, "Basso");
+  });
+
+  // Listener pentru anulare trimitere
+  await listen<SendResult>("send-cancelled", async (event) => {
+    const { send_id, target_name } = event.payload;
+    activeSends.delete(send_id);
+    updateSendsUI();
+    showToast(`Trimitere către ${target_name} anulată`, "error");
   });
 }
 

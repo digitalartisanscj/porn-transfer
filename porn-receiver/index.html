@@ -104,19 +104,8 @@
               <p class="drop-zone-text">Selecteaza un editor apoi trage fisierele aici</p>
               <p class="drop-zone-hint">sau click pentru a selecta fisiere</p>
             </div>
-            <div class="send-progress" id="send-progress" style="display: none;">
-              <div class="send-progress-header">
-                <span class="send-progress-target" id="send-target-name">Editor</span>
-                <span class="send-progress-stats" id="send-stats">0/0 - 0 MB/s</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-bar-fill" id="send-progress-bar" style="width: 0%"></div>
-              </div>
-              <div class="send-progress-footer">
-                <p class="send-progress-file" id="send-file-name">...</p>
-                <button type="button" class="btn btn-cancel" id="btn-cancel-send">Anuleaza</button>
-              </div>
-            </div>
+            <!-- Container pentru multiple trimiteri simultane -->
+            <div class="active-sends-container" id="active-sends-container"></div>
 
             <!-- Istoric trimiteri -->
             <div class="sent-history-section">

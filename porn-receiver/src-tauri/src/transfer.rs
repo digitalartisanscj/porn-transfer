@@ -38,6 +38,7 @@ pub struct FileInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendProgress {
+    pub send_id: String,  // ID unic pentru fiecare transfer (pentru transferuri simultane)
     pub file_name: String,
     pub file_index: usize,
     pub total_files: usize,
@@ -45,6 +46,20 @@ pub struct SendProgress {
     pub total_bytes: u64,
     pub speed_mbps: f64,
     pub target_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendResult {
+    pub send_id: String,
+    pub target_name: String,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendError {
+    pub send_id: String,
+    pub target_name: String,
+    pub error: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,26 +95,59 @@ pub async fn send_files_to_editor(
     folder_name: Option<String>,  // Numele original al folderului (pentru receiver→receiver)
     window: tauri::Window,
     is_cancelled: Arc<AtomicBool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    // Generează send_id unic
+    let send_id = format!(
+        "{}_{}",
+        service.name.replace(' ', "_"),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let target_name = service.name.clone();
+
+    // Helper macro pentru emit eroare și return
+    macro_rules! emit_error {
+        ($msg:expr) => {{
+            let error_msg = $msg;
+            let _ = window.emit("send-error", SendError {
+                send_id: send_id.clone(),
+                target_name: target_name.clone(),
+                error: error_msg.clone(),
+            });
+            return Err(error_msg);
+        }};
+    }
+
+    // Emite eveniment de start pentru UI
+    let _ = window.emit("send-started", SendResult {
+        send_id: send_id.clone(),
+        target_name: target_name.clone(),
+        file_count: files.len(),
+    });
+
     // Resetează flagul de anulare la începutul transferului
     is_cancelled.store(false, Ordering::Relaxed);
     // Conectare la editor
     let addr = format!("{}:{}", service.host, service.port);
-    println!("Conectare la editor: {}", addr);
+    println!("Conectare la editor: {} (send_id: {})", addr, send_id);
 
-    let mut stream = TcpStream::connect(&addr)
-        .map_err(|e| format!("Nu m-am putut conecta la {}: {}", addr, e))?;
+    let mut stream = match TcpStream::connect(&addr) {
+        Ok(s) => s,
+        Err(e) => emit_error!(format!("Nu m-am putut conecta la {}: {}", addr, e)),
+    };
 
     // Setează timeout pentru operațiuni
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(60)))
-        .map_err(|e| format!("Eroare setare read timeout: {}", e))?;
-    stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(60)))
-        .map_err(|e| format!("Eroare setare write timeout: {}", e))?;
-    stream
-        .set_nodelay(true)
-        .map_err(|e| format!("Eroare setare TCP nodelay: {}", e))?;
+    if let Err(e) = stream.set_read_timeout(Some(std::time::Duration::from_secs(60))) {
+        emit_error!(format!("Eroare setare read timeout: {}", e));
+    }
+    if let Err(e) = stream.set_write_timeout(Some(std::time::Duration::from_secs(60))) {
+        emit_error!(format!("Eroare setare write timeout: {}", e));
+    }
+    if let Err(e) = stream.set_nodelay(true) {
+        emit_error!(format!("Eroare setare TCP nodelay: {}", e));
+    }
 
     println!("Conectat cu succes la {}", addr);
 
@@ -125,57 +173,67 @@ pub async fn send_files_to_editor(
         sender_role: Some(sender_role.to_string()),
     };
 
-    let header_json = serde_json::to_string(&header).map_err(|e| e.to_string())?;
+    let header_json = match serde_json::to_string(&header) {
+        Ok(j) => j,
+        Err(e) => emit_error!(format!("Eroare serializare header: {}", e)),
+    };
     let header_bytes = header_json.as_bytes();
 
     // Trimite lungimea header-ului (4 bytes, big endian)
     println!("Trimit header ({} bytes)...", header_bytes.len());
-    stream
-        .write_all(&(header_bytes.len() as u32).to_be_bytes())
-        .map_err(|e| format!("Eroare trimitere lungime header: {}", e))?;
+    if let Err(e) = stream.write_all(&(header_bytes.len() as u32).to_be_bytes()) {
+        emit_error!(format!("Eroare trimitere lungime header: {}", e));
+    }
 
     // Trimite header-ul
-    stream
-        .write_all(header_bytes)
-        .map_err(|e| format!("Eroare trimitere header: {}", e))?;
-    stream.flush().map_err(|e| format!("Eroare flush header: {}", e))?;
+    if let Err(e) = stream.write_all(header_bytes) {
+        emit_error!(format!("Eroare trimitere header: {}", e));
+    }
+    if let Err(e) = stream.flush() {
+        emit_error!(format!("Eroare flush header: {}", e));
+    }
 
     println!("Header trimis, aștept ACK...");
 
     // Așteaptă ACK
     let mut ack_len_buf = [0u8; 4];
-    stream
-        .read_exact(&mut ack_len_buf)
-        .map_err(|e| format!("Eroare citire lungime ACK: {}", e))?;
+    if let Err(e) = stream.read_exact(&mut ack_len_buf) {
+        emit_error!(format!("Eroare citire lungime ACK: {}", e));
+    }
     let ack_len = u32::from_be_bytes(ack_len_buf) as usize;
 
     let mut ack_buf = vec![0u8; ack_len];
-    stream
-        .read_exact(&mut ack_buf)
-        .map_err(|e| format!("Eroare citire ACK: {}", e))?;
+    if let Err(e) = stream.read_exact(&mut ack_buf) {
+        emit_error!(format!("Eroare citire ACK: {}", e));
+    }
 
-    let ack: AckResponse =
-        serde_json::from_slice(&ack_buf).map_err(|e| format!("Eroare parsare ACK: {}", e))?;
+    let ack: AckResponse = match serde_json::from_slice(&ack_buf) {
+        Ok(a) => a,
+        Err(e) => emit_error!(format!("Eroare parsare ACK: {}", e)),
+    };
 
     println!("ACK primit: status={}", ack.status);
 
     if ack.status != "ready" {
-        return Err(format!("Receiver nu e gata: {}", ack.status));
+        emit_error!(format!("Receiver nu e gata: {}", ack.status));
     }
 
     // Trimite lista de fișiere de transferat (serverul așteaptă această listă)
     // Folosim relative_path pentru a identifica corect fișierele cu subfoldere
     println!("Trimit lista de {} fișiere...", files.len());
     let files_to_send: Vec<String> = files.iter().map(|f| f.relative_path.clone()).collect();
-    let decision_json = serde_json::to_string(&files_to_send).map_err(|e| e.to_string())?;
+    let decision_json = match serde_json::to_string(&files_to_send) {
+        Ok(j) => j,
+        Err(e) => emit_error!(format!("Eroare serializare lista fișiere: {}", e)),
+    };
     let decision_bytes = decision_json.as_bytes();
 
-    stream
-        .write_all(&(decision_bytes.len() as u32).to_be_bytes())
-        .map_err(|e| format!("Eroare trimitere decizie len: {}", e))?;
-    stream
-        .write_all(decision_bytes)
-        .map_err(|e| format!("Eroare trimitere decizie: {}", e))?;
+    if let Err(e) = stream.write_all(&(decision_bytes.len() as u32).to_be_bytes()) {
+        emit_error!(format!("Eroare trimitere decizie len: {}", e));
+    }
+    if let Err(e) = stream.write_all(decision_bytes) {
+        emit_error!(format!("Eroare trimitere decizie: {}", e));
+    }
 
     // Trimite fișierele
     let mut total_sent: u64 = 0;
@@ -187,7 +245,7 @@ pub async fn send_files_to_editor(
         // Verifică dacă fișierul există
         let path = std::path::Path::new(&file.path);
         if !path.exists() {
-            return Err(format!("Fișierul nu există: {}", file.path));
+            emit_error!(format!("Fișierul nu există: {}", file.path));
         }
 
         // Verifică metadatele
@@ -200,8 +258,10 @@ pub async fn send_files_to_editor(
             }
         }
 
-        let mut file_handle = open_file_for_read(&file.path)
-            .map_err(|e| format!("Nu pot deschide {}: {} (path: {})", file.name, e, file.path))?;
+        let mut file_handle = match open_file_for_read(&file.path) {
+            Ok(f) => f,
+            Err(e) => emit_error!(format!("Nu pot deschide {}: {} (path: {})", file.name, e, file.path)),
+        };
 
         let mut buffer = vec![0u8; CHUNK_SIZE];
         let mut file_sent: u64 = 0;
@@ -209,22 +269,27 @@ pub async fn send_files_to_editor(
         while file_sent < file.size {
             // Verifică dacă transferul a fost anulat
             if is_cancelled.load(Ordering::Relaxed) {
-                println!("Transfer anulat de utilizator");
-                let _ = window.emit("send-cancelled", ());
+                println!("Transfer anulat de utilizator (send_id: {})", send_id);
+                let _ = window.emit("send-cancelled", SendResult {
+                    send_id: send_id.clone(),
+                    target_name: target_name.clone(),
+                    file_count: files.len(),
+                });
                 return Err("Transfer anulat".to_string());
             }
 
-            let bytes_read = file_handle
-                .read(&mut buffer)
-                .map_err(|e| format!("Eroare citire {}: {}", file.name, e))?;
+            let bytes_read = match file_handle.read(&mut buffer) {
+                Ok(n) => n,
+                Err(e) => emit_error!(format!("Eroare citire {}: {}", file.name, e)),
+            };
 
             if bytes_read == 0 {
                 break;
             }
 
-            stream
-                .write_all(&buffer[..bytes_read])
-                .map_err(|e| format!("Eroare trimitere {}: {}", file.name, e))?;
+            if let Err(e) = stream.write_all(&buffer[..bytes_read]) {
+                emit_error!(format!("Eroare trimitere {}: {}", file.name, e));
+            }
 
             file_sent += bytes_read as u64;
             total_sent += bytes_read as u64;
@@ -239,13 +304,14 @@ pub async fn send_files_to_editor(
 
             // Trimite progress la UI
             let progress = SendProgress {
+                send_id: send_id.clone(),
                 file_name: file.name.clone(),
                 file_index: index,
                 total_files: files.len(),
                 bytes_sent: total_sent,
                 total_bytes,
                 speed_mbps,
-                target_name: service.name.clone(),
+                target_name: target_name.clone(),
             };
 
             let _ = window.emit("send-progress", &progress);
@@ -253,23 +319,25 @@ pub async fn send_files_to_editor(
 
         // Așteaptă confirmare pentru fișier (fără checksum)
         let mut response = [0u8; 32];
-        let n = stream
-            .read(&mut response)
-            .map_err(|e| format!("Eroare citire confirmare: {}", e))?;
+        let n = match stream.read(&mut response) {
+            Ok(n) => n,
+            Err(e) => emit_error!(format!("Eroare citire confirmare: {}", e)),
+        };
 
         let response_str = String::from_utf8_lossy(&response[..n]);
         if !response_str.contains("OK") {
-            return Err(format!(
-                "Eroare la fișierul {}: {}",
-                file.name, response_str
-            ));
+            emit_error!(format!("Eroare la fișierul {}: {}", file.name, response_str));
         }
     }
 
     // Emite eveniment de finalizare
-    let _ = window.emit("send-complete", files.len());
+    let _ = window.emit("send-complete", SendResult {
+        send_id: send_id.clone(),
+        target_name: target_name.clone(),
+        file_count: files.len(),
+    });
 
-    Ok(())
+    Ok(send_id)
 }
 
 pub fn prepare_files(paths: &[String]) -> Vec<FileInfo> {

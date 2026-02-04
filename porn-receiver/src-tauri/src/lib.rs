@@ -239,7 +239,7 @@ async fn send_to_editor(
     file_paths: Vec<String>,
     folder_name: Option<String>,  // Numele original al folderului (pentru receiver→receiver)
     window: tauri::Window,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let config = {
         let c = state.config.lock().map_err(|e| e.to_string())?;
         c.clone()
@@ -263,9 +263,9 @@ async fn send_to_editor(
     let target = service.name.clone();
     let folder = folder_name.clone();
 
-    // Trimite fișierele
+    // Trimite fișierele (returnează send_id)
     let is_cancelled = Arc::clone(&state.is_send_cancelled);
-    transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window, is_cancelled).await?;
+    let send_id = transfer::send_files_to_editor(&service, &config.name, &config.role, &files, folder_name, window, is_cancelled).await?;
 
     // Salvează în istoricul de trimiteri
     let sent_record = SentRecord {
@@ -277,7 +277,7 @@ async fn send_to_editor(
     };
     let _ = add_sent_record(sent_record);
 
-    Ok(())
+    Ok(send_id)
 }
 
 #[tauri::command]

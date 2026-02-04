@@ -845,6 +845,13 @@ body {
   color: var(--text-muted);
 }
 
+/* Container pentru trimiteri simultane */
+.active-sends-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Send Progress */
 .send-progress {
   background: var(--bg-card);
