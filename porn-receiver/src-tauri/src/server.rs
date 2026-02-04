@@ -93,20 +93,48 @@ fn find_temp_folder(base_path: &std::path::Path, photographer: &str) -> Option<s
     }
 }
 
+// Numără fișierele recursiv într-un folder (include subfoldere)
+fn count_files_recursive(path: &std::path::Path) -> (usize, u64) {
+    let mut count = 0usize;
+    let mut size = 0u64;
+
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                count += 1;
+                size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            } else if entry_path.is_dir() {
+                // Recursiv în subfolder
+                let (sub_count, sub_size) = count_files_recursive(&entry_path);
+                count += sub_count;
+                size += sub_size;
+            }
+        }
+    }
+
+    (count, size)
+}
+
 // Generează un nume de folder temporar unic
-// Dacă folder_name este specificat (transfer receiver→receiver), îl include pentru unicitate
+// Folosește timestamp + random ID pentru a garanta unicitate chiar și la transferuri simultane
 fn generate_temp_folder_name(photographer: &str, folder_name: Option<&str>) -> String {
+    use rand::Rng;
+
     let sanitized = photographer.to_lowercase().replace(' ', "_");
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
 
+    // Adaugă random ID pentru unicitate garantată chiar dacă 2 transferuri pornesc în aceeași milisecundă
+    let random_id: u32 = rand::rng().random_range(1000..9999);
+
     if let Some(fname) = folder_name {
         let folder_sanitized = fname.to_lowercase().replace(' ', "_");
-        format!(".tmp_{}_{}_{}", sanitized, folder_sanitized, timestamp)
+        format!(".tmp_{}_{}_{}_{}", sanitized, folder_sanitized, timestamp, random_id)
     } else {
-        format!(".tmp_{}_{}", sanitized, timestamp)
+        format!(".tmp_{}_{}_{}", sanitized, timestamp, random_id)
     }
 }
 
@@ -586,21 +614,9 @@ fn handle_connection(
     let total_files_count = files_to_receive.len();
     let mut files_completed: usize = 0;
 
-    // Numără fișierele reale din folder
+    // Numără fișierele reale din folder (recursiv, include subfoldere)
     let count_real_files = || -> (usize, u64) {
-        if let Ok(entries) = std::fs::read_dir(&full_path) {
-            let mut count = 0usize;
-            let mut size = 0u64;
-            for entry in entries.filter_map(|e| e.ok()) {
-                if entry.path().is_file() {
-                    count += 1;
-                    size += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                }
-            }
-            (count, size)
-        } else {
-            (0, 0)
-        }
+        count_files_recursive(&full_path)
     };
 
     let folder_path_str = full_path.to_string_lossy().to_string();
@@ -795,22 +811,8 @@ fn handle_connection(
     // Actualizează folder_path_str pentru salvarea în istoric
     let final_folder_path_str = final_path.to_string_lossy().to_string();
 
-    // Numără fișierele reale din folderul final
-    let (final_file_count, final_total_size) = {
-        if let Ok(entries) = std::fs::read_dir(&final_path) {
-            let mut count = 0usize;
-            let mut size = 0u64;
-            for entry in entries.filter_map(|e| e.ok()) {
-                if entry.path().is_file() {
-                    count += 1;
-                    size += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                }
-            }
-            (count, size)
-        } else {
-            (files_completed, total_bytes)
-        }
-    };
+    // Numără fișierele reale din folderul final (recursiv, include subfoldere)
+    let (final_file_count, final_total_size) = count_files_recursive(&final_path);
 
     // Salvează în istoric cu calea finală
     let record = TransferRecord {

@@ -550,10 +550,11 @@ function updateTransfersUI() {
   empty.style.display = "none";
   list.innerHTML = "";
 
-  activeTransfers.forEach((p, photographer) => {
+  activeTransfers.forEach((p, transferId) => {
     const percent = (p.bytes_received / p.total_bytes) * 100;
     const item = document.createElement("div");
     item.className = "transfer-item";
+    item.id = `transfer-${transferId}`;
     item.innerHTML = `
       <div class="transfer-header">
         <span class="transfer-name">${p.photographer}</span>
@@ -564,7 +565,7 @@ function updateTransfersUI() {
       </div>
       <div class="transfer-footer">
         <span class="transfer-file">${p.file_name}</span>
-        <button class="btn-cancel-transfer" data-photographer="${photographer}">Anuleaza</button>
+        <button class="btn-cancel-transfer" data-transfer-id="${transferId}">Anuleaza</button>
       </div>
     `;
 
@@ -573,9 +574,9 @@ function updateTransfersUI() {
     cancelBtn.addEventListener('click', async () => {
       try {
         await invoke("cancel_current_transfer");
-        activeTransfers.delete(photographer);
+        activeTransfers.delete(transferId);
         updateTransfersUI();
-        showToast(`Transfer de la ${photographer} anulat`, "error");
+        showToast(`Transfer de la ${p.photographer} anulat`, "error");
       } catch (e) {
         console.error("Error cancelling transfer:", e);
       }
