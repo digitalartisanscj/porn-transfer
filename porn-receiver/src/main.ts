@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface ReceiverConfig {
   role: string;
@@ -117,6 +118,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   await setupTauriListeners(); // Must be before loadConfig to catch server-started event
   await loadConfig();
   await showLocalIP();
+  await showAppVersion(); // Afișează versiunea aplicației
   await checkTempFolders(); // Verifică foldere temporare la pornire
   checkForUpdatesOnStartup(); // Verifică actualizări în background
 });
@@ -165,6 +167,18 @@ async function showLocalIP() {
     ipAddress.textContent = `IP: ${ip}`;
   } catch (e) {
     ipAddress.textContent = "";
+  }
+}
+
+async function showAppVersion() {
+  try {
+    const version = await getVersion();
+    const versionEl = document.getElementById("current-version");
+    if (versionEl) {
+      versionEl.textContent = `Versiune: ${version}`;
+    }
+  } catch (e) {
+    console.error("Error getting app version:", e);
   }
 }
 
