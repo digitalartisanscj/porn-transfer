@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use warp::Filter;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppRelease {
@@ -17,6 +18,8 @@ pub struct AppRelease {
     pub aarch64_sig: Option<String>,
     pub x64_path: Option<String>,
     pub x64_sig: Option<String>,
+    pub windows_path: Option<String>,
+    pub windows_sig: Option<String>,
     pub pub_date: String,
 }
 
@@ -67,6 +70,7 @@ async fn add_release(
     notes: String,
     aarch64_file: Option<String>,
     x64_file: Option<String>,
+    windows_file: Option<String>,
     app_handle: AppHandle,
 ) -> Result<AppRelease, String> {
     let updates_dir = state.updates_dir.clone();
@@ -76,8 +80,10 @@ async fn add_release(
     let signing_key = state.signing_key_path.clone();
     let mut aarch64_sig = None;
     let mut x64_sig = None;
+    let mut windows_sig = None;
     let mut aarch64_dest = None;
     let mut x64_dest = None;
+    let mut windows_dest = None;
 
     // Process ARM64 file
     if let Some(ref path) = aarch64_file {
@@ -86,8 +92,10 @@ async fn add_release(
         let dest = app_dir.join(&filename);
 
         if path.ends_with(".app") {
+            // Use COPYFILE_DISABLE to prevent macOS extended attributes (._* files)
             let tar_output = Command::new("tar")
-                .args(["-czf", dest.to_str().unwrap(), "-C", src.parent().unwrap().to_str().unwrap(), src.file_name().unwrap().to_str().unwrap()])
+                .env("COPYFILE_DISABLE", "1")
+                .args(["--exclude", "._*", "-czf", dest.to_str().unwrap(), "-C", src.parent().unwrap().to_str().unwrap(), src.file_name().unwrap().to_str().unwrap()])
                 .output()
                 .map_err(|e| e.to_string())?;
 
@@ -109,8 +117,10 @@ async fn add_release(
         let dest = app_dir.join(&filename);
 
         if path.ends_with(".app") {
+            // Use COPYFILE_DISABLE to prevent macOS extended attributes (._* files)
             let tar_output = Command::new("tar")
-                .args(["-czf", dest.to_str().unwrap(), "-C", src.parent().unwrap().to_str().unwrap(), src.file_name().unwrap().to_str().unwrap()])
+                .env("COPYFILE_DISABLE", "1")
+                .args(["--exclude", "._*", "-czf", dest.to_str().unwrap(), "-C", src.parent().unwrap().to_str().unwrap(), src.file_name().unwrap().to_str().unwrap()])
                 .output()
                 .map_err(|e| e.to_string())?;
 
@@ -125,6 +135,19 @@ async fn add_release(
         x64_dest = Some(filename);
     }
 
+    // Process Windows file
+    if let Some(ref path) = windows_file {
+        let src = PathBuf::from(path);
+        let filename = format!("{}_windows_x64.nsis.zip", app_type);
+        let dest = app_dir.join(&filename);
+
+        // Just copy the file (Windows bundles are already in the right format)
+        fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+
+        windows_sig = sign_file(&dest, &signing_key).ok();
+        windows_dest = Some(filename);
+    }
+
     let local_ip = get_local_ip();
     let release = AppRelease {
         app_type: app_type.clone(),
@@ -134,6 +157,8 @@ async fn add_release(
         aarch64_sig,
         x64_path: x64_dest,
         x64_sig,
+        windows_path: windows_dest,
+        windows_sig,
         pub_date: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -150,21 +175,27 @@ async fn add_release(
 }
 
 fn sign_file(file_path: &PathBuf, key_path: &PathBuf) -> Result<String, String> {
-    let sig_path = format!("{}.sig", file_path.to_str().unwrap());
+    let sig_path = format!("{}.minisig", file_path.to_str().unwrap());
 
-    let output = Command::new("minisign")
+    let filename = file_path.file_name().unwrap().to_str().unwrap();
+    let trusted_comment = format!("file:{}", filename);
+
+    let output = Command::new("/opt/homebrew/bin/minisign")
         .args([
             "-S", "-s", key_path.to_str().unwrap(),
             "-m", file_path.to_str().unwrap(),
             "-x", &sig_path,
+            "-t", &trusted_comment,
         ])
         .output();
 
     match output {
         Ok(o) if o.status.success() => {
-            let sig = fs::read_to_string(&sig_path)
+            let sig_content = fs::read(&sig_path)
                 .map_err(|e| format!("Failed to read signature: {}", e))?;
-            Ok(sig.trim().to_string())
+            // Base64 encode the entire signature file content
+            let sig_base64 = general_purpose::STANDARD.encode(&sig_content);
+            Ok(sig_base64)
         }
         Ok(o) => Err(format!("Signing failed: {}", String::from_utf8_lossy(&o.stderr))),
         Err(e) => Err(format!("Failed to run minisign: {}", e)),
@@ -190,6 +221,15 @@ fn generate_latest_json(app_dir: &PathBuf, release: &AppRelease, local_ip: &str,
             format!("http://{}:{}/{}/{}", local_ip, port, release.app_type, path)
         ));
         platforms.insert("darwin-x86_64".to_string(), serde_json::Value::Object(platform));
+    }
+
+    if let (Some(ref path), Some(ref sig)) = (&release.windows_path, &release.windows_sig) {
+        let mut platform = serde_json::Map::new();
+        platform.insert("signature".to_string(), serde_json::Value::String(sig.clone()));
+        platform.insert("url".to_string(), serde_json::Value::String(
+            format!("http://{}:{}/{}/{}", local_ip, port, release.app_type, path)
+        ));
+        platforms.insert("windows-x86_64".to_string(), serde_json::Value::Object(platform));
     }
 
     let latest = serde_json::json!({
@@ -302,7 +342,7 @@ pub fn run() {
     fs::create_dir_all(updates_dir.join("receiver")).ok();
     fs::create_dir_all(updates_dir.join("sender")).ok();
 
-    let signing_key_path = home.join(".tauri").join("porn-receiver.key");
+    let signing_key_path = home.join(".tauri").join("porn-nopass.key");
 
     let app_state = AppState {
         server_state: Arc::new(RwLock::new(ServerState {

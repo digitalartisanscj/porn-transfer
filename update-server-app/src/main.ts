@@ -17,6 +17,8 @@ interface AppRelease {
   aarch64_sig: string | null;
   x64_path: string | null;
   x64_sig: string | null;
+  windows_path: string | null;
+  windows_sig: string | null;
   pub_date: string;
 }
 
@@ -67,7 +69,7 @@ function updateReleasesList() {
       <div class="release-item">
         <h3>${type.charAt(0).toUpperCase() + type.slice(1)} v${release.version}</h3>
         <p>${release.notes || "Fără descriere"}</p>
-        <p>ARM64: ${release.aarch64_path ? "✅" : "❌"} | x64: ${release.x64_path ? "✅" : "❌"}</p>
+        <p>ARM64: ${release.aarch64_path ? "✅" : "❌"} | Intel: ${release.x64_path ? "✅" : "❌"} | Windows: ${release.windows_path ? "✅" : "❌"}</p>
         <p style="font-size: 0.75rem; color: #999;">Publicat: ${new Date(release.pub_date).toLocaleString()}</p>
       </div>
     `;
@@ -106,19 +108,24 @@ async function stopServer() {
   }
 }
 
-async function selectFile(target: "aarch64" | "x64") {
+async function selectFile(target: "aarch64" | "x64" | "windows") {
   try {
+    const filters = target === "windows"
+      ? [{ name: "Windows Bundle", extensions: ["zip", "nsis.zip", "msi"] }]
+      : [{ name: "App Bundle", extensions: ["app", "tar.gz", "gz"] }];
+
     const selected = await open({
       multiple: false,
-      filters: [{
-        name: "App Bundle",
-        extensions: ["app", "tar.gz", "gz"]
-      }],
+      filters,
       directory: false
     });
 
     if (selected) {
-      const inputId = target === "aarch64" ? "aarch64-path" : "x64-path";
+      let inputId: string;
+      if (target === "aarch64") inputId = "aarch64-path";
+      else if (target === "x64") inputId = "x64-path";
+      else inputId = "windows-path";
+
       const input = document.getElementById(inputId) as HTMLInputElement;
       input.value = selected as string;
     }
@@ -133,13 +140,14 @@ async function addRelease() {
   const notes = (document.getElementById("notes") as HTMLTextAreaElement).value;
   const aarch64Path = (document.getElementById("aarch64-path") as HTMLInputElement).value;
   const x64Path = (document.getElementById("x64-path") as HTMLInputElement).value;
+  const windowsPath = (document.getElementById("windows-path") as HTMLInputElement).value;
 
   if (!version) {
     showMessage("Te rog introdu versiunea!", "error");
     return;
   }
 
-  if (!aarch64Path && !x64Path) {
+  if (!aarch64Path && !x64Path && !windowsPath) {
     showMessage("Te rog selectează cel puțin un fișier!", "error");
     return;
   }
@@ -154,7 +162,8 @@ async function addRelease() {
       version,
       notes,
       aarch64File: aarch64Path || null,
-      x64File: x64Path || null
+      x64File: x64Path || null,
+      windowsFile: windowsPath || null
     });
 
     showMessage(`Release ${appType} v${version} adăugat cu succes!`, "success");
@@ -164,6 +173,7 @@ async function addRelease() {
     (document.getElementById("notes") as HTMLTextAreaElement).value = "";
     (document.getElementById("aarch64-path") as HTMLInputElement).value = "";
     (document.getElementById("x64-path") as HTMLInputElement).value = "";
+    (document.getElementById("windows-path") as HTMLInputElement).value = "";
 
     updateUI();
   } catch (e) {
@@ -180,6 +190,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("btn-stop-server")!.addEventListener("click", stopServer);
   document.getElementById("btn-select-aarch64")!.addEventListener("click", () => selectFile("aarch64"));
   document.getElementById("btn-select-x64")!.addEventListener("click", () => selectFile("x64"));
+  document.getElementById("btn-select-windows")!.addEventListener("click", () => selectFile("windows"));
   document.getElementById("btn-add-release")!.addEventListener("click", addRelease);
 
   // Listen for events
