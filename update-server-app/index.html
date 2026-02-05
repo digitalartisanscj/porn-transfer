@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Update Server</title>
+  <script type="module" src="/src/main.ts" defer></script>
+</head>
+<body>
+  <main class="container">
+    <h1>Porn Transfer Update Server</h1>
+
+    <div class="server-status" id="server-status">
+      <div class="status-indicator offline"></div>
+      <span>Server oprit</span>
+    </div>
+
+    <div class="server-info" id="server-info" style="display: none;">
+      <p>IP: <strong id="server-ip">-</strong></p>
+      <p>Port: <strong id="server-port">8080</strong></p>
+    </div>
+
+    <div class="actions">
+      <button id="btn-start-server" class="btn-primary">Pornește Server</button>
+      <button id="btn-stop-server" class="btn-secondary" style="display: none;">Oprește Server</button>
+    </div>
+
+    <hr />
+
+    <h2>Adaugă Release</h2>
+
+    <div class="form-group">
+      <label>Aplicație:</label>
+      <select id="app-type">
+        <option value="receiver">Receiver</option>
+        <option value="sender">Sender</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Versiune:</label>
+      <input type="text" id="version" placeholder="ex: 0.4.0" />
+    </div>
+
+    <div class="form-group">
+      <label>Note release:</label>
+      <textarea id="notes" placeholder="Descriere actualizare..."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Fișier ARM64 (Apple Silicon):</label>
+      <div class="file-input">
+        <input type="text" id="aarch64-path" readonly placeholder="Selectează .app sau .tar.gz" />
+        <button id="btn-select-aarch64">Selectează</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Fișier x64 (Intel):</label>
+      <div class="file-input">
+        <input type="text" id="x64-path" readonly placeholder="Selectează .app sau .tar.gz" />
+        <button id="btn-select-x64">Selectează</button>
+      </div>
+    </div>
+
+    <button id="btn-add-release" class="btn-primary btn-large">Adaugă Release</button>
+
+    <hr />
+
+    <h2>Release-uri Active</h2>
+    <div id="releases-list">
+      <p class="hint">Niciun release adăugat.</p>
+    </div>
+
+    <div id="status-message" class="status-message"></div>
+  </main>
+</body>
+</html>

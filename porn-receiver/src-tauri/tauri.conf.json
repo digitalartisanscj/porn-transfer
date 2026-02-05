@@ -46,7 +46,8 @@
       "endpoints": [
         "http://192.168.0.24:8080/receiver/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMjAzRDVEREY0NUNBMUEKUldRYXlrWGZYVDBnczZzVXpja2FJVzBkdkNZMFVIWlNDN3V3Zlc4V0tVLzlnak13VCtZRXpJVHQK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMjAzRDVEREY0NUNBMUEKUldRYXlrWGZYVDBnczZzVXpja2FJVzBkdkNZMFVIWlNDN3V3Zlc4V0tVLzlnak13VCtZRXpJVHQK",
+      "dangerousInsecureTransportProtocol": true
     }
   }
 }
