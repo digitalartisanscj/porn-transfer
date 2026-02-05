@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface DiscoveredService {
   name: string;
@@ -101,10 +102,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   startServiceDiscovery();
   updateDropZonesState();
   loadHistory();
+  await showAppVersion();
 
   // Check for updates
   checkForUpdates();
 });
+
+async function showAppVersion() {
+  try {
+    const version = await getVersion();
+    const versionEl = document.getElementById("app-version");
+    if (versionEl) {
+      versionEl.textContent = `v${version}`;
+    }
+  } catch (e) {
+    console.error("Error getting app version:", e);
+  }
+}
 
 async function checkForUpdates() {
   try {

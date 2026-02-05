@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Porn Sender",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "identifier": "com.alin.porn-sender",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -35,14 +35,20 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: DIGITAL ARTISANS SRL (5CYSUYYXG3)",
+      "hardenedRuntime": true,
+      "entitlements": null
+    }
   },
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/digitalartisanscj/porn-transfer/releases/latest/download/sender-latest.json"
+        "http://192.168.0.24:8080/sender/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMjAzRDVEREY0NUNBMUEKUldRYXlrWGZYVDBnczZzVXpja2FJVzBkdkNZMFVIWlNDN3V3Zlc4V0tVLzlnak13VCtZRXpJVHQK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgNDI2QTQyMEJBNDhGMkMxRQpSV1FlTEkra0MwSnFRcytkM1BPTENMSEkzTnVMeFJsZkVwM2RBVk1zTVpRTGp4NksrSlovRXJxTgo=",
+      "dangerousInsecureTransportProtocol": true
     }
   }
 }
