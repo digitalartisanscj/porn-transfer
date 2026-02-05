@@ -46,7 +46,12 @@ impl ServiceDiscovery {
                             .get_properties()
                             .get("name")
                             .map(|v| v.val_str().to_string())
-                            .unwrap_or_else(|| info.get_fullname().to_string());
+                            .filter(|s| !s.is_empty())  // Ignoră strings goale
+                            .unwrap_or_else(|| {
+                                // Extrage doar instance name din fullname (fără ._service._tcp.local.)
+                                let fullname = info.get_fullname();
+                                fullname.split("._").next().unwrap_or(fullname).to_string()
+                            });
 
                         // Nu adăugăm pe noi înșine
                         if name == my_name_clone {
